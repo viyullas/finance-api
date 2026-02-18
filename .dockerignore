@@ -1,0 +1,24 @@
+# Git files
+.git
+.gitignore
+
+# Documentation
+*.md
+README.md
+
+# Test files
+*_test.go
+testdata/
+
+# Temporary files
+*.tmp
+*.swp
+.DS_Store
+
+# IDE files
+.vscode/
+.idea/
+
+# Build artifacts (will be built in container)
+payment-api
+*.exe
