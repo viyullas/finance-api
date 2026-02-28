@@ -372,11 +372,14 @@ delete-apps: ## Delete ArgoCD Applications (both managed from Spain)
 		kubectl --context spain delete application -n argocd payment-latency-api-mexico --wait=false 2>/dev/null || true; \
 		echo "Waiting for ArgoCD to clean up resources..."; \
 		sleep 15; \
+		echo "Waiting for Ingress deletion (external-dns needs this to remove Route53 records)..."; \
+		kubectl --context spain wait ingress --all -n $(NAMESPACE) --for=delete --timeout=90s 2>/dev/null || true; \
 		kubectl --context spain delete namespace $(NAMESPACE) --wait=false 2>/dev/null || true; \
 	else \
 		echo "Spain cluster not reachable, skipping app deletion"; \
 	fi
 	@if [ "$(call check_cluster,mexico)" = "yes" ]; then \
+		kubectl --context mexico wait ingress --all -n $(NAMESPACE) --for=delete --timeout=90s 2>/dev/null || true; \
 		kubectl --context mexico delete namespace $(NAMESPACE) --wait=false 2>/dev/null || true; \
 	fi
 
