@@ -202,7 +202,7 @@ helm-deps-spain: ## Install ALB Controller + ESO + external-dns on Spain
 	@echo "$$CSS_YAML" | sed 's/__REGION__/$(SPAIN_REGION)/' | kubectl --context spain apply -f -
 	helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
 	helm upgrade --install external-dns bitnami/external-dns \
-		--namespace external-dns --kube-context spain \
+		--namespace external-dns --create-namespace --kube-context spain \
 		--set provider=aws \
 		--set aws.region=$(SPAIN_REGION) \
 		--set serviceAccount.create=true \
@@ -246,7 +246,7 @@ helm-deps-mexico: ## Install ALB Controller + ESO + external-dns on Mexico
 	@echo "$$CSS_YAML" | sed 's/__REGION__/$(MEXICO_REGION)/' | kubectl --context mexico apply -f -
 	helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
 	helm upgrade --install external-dns bitnami/external-dns \
-		--namespace external-dns --kube-context mexico \
+		--namespace external-dns --create-namespace --kube-context mexico \
 		--set provider=aws \
 		--set aws.region=$(MEXICO_REGION) \
 		--set serviceAccount.create=true \
