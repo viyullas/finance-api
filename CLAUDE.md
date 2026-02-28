@@ -121,7 +121,7 @@ Debe incluir todos estos recursos:
 ## Regiones AWS
 | Región  | AWS Region  | Normativa       |
 |---------|-------------|-----------------|
-| España  | eu-south-1  | GDPR (EU)       |
+| España  | eu-south-2  | GDPR (EU)       |
 | México  | us-east-1*  | Ley Federal MX  |
 
 *AWS no tiene región en México, usar us-east-1 con etiquetado de datos.
