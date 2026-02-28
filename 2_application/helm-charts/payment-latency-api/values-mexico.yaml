@@ -18,6 +18,9 @@ ingress:
     alb.ingress.kubernetes.io/ssl-redirect: "443"
     # certificate-arn se inyecta via ArgoCD ApplicationSet helm.parameters
 
+serviceMonitor:
+  enabled: false
+
 nodeSelector:
   role: application
 

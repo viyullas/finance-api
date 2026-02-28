@@ -61,7 +61,7 @@ Diseño e implementación de una infraestructura cloud multi-regional en AWS par
         │   ├── eks/                    # Cluster + node groups
         │   └── rds/                    # PostgreSQL
         └── environments/
-            ├── spain/                  # eu-south-1
+            ├── spain/                  # eu-south-2
             └── mexico/                 # us-east-1 (región proxy para MX)
 ```
 
@@ -93,7 +93,7 @@ Debe incluir todos estos recursos:
 - Ejecutar `terraform validate` antes de entregar
 
 ### 4. GitOps - ArgoCD
-- `Application` manifest para España (`eu-south-1`)
+- `Application` manifest para España (`eu-south-2`)
 - `Application` manifest para México (`us-east-1`)
 - Bonus: `ApplicationSet` que gestione ambas regiones
 
