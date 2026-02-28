@@ -30,7 +30,7 @@ Pluxee/Cobee necesita una plataforma de pagos multi-regional con operaciones en 
 
 **Separación de node groups:**
 - **System** (`t3.medium`, tamaño fijo ~2 nodos): ejecuta componentes de cluster (CoreDNS, ALB Controller, ESO, EBS CSI). Taint `dedicated=system:NoSchedule` impide que pods de aplicación se programen aquí
-- **Application** (`m6i.large`, autoscaling): ejecuta workloads de negocio (payment-latency-api). Sin taints, con label `role=application` y nodeSelector en los pods
+- **Application** (`t3.medium`, autoscaling): ejecuta workloads de negocio (payment-latency-api). Sin taints, con label `role=application` y nodeSelector en los pods
 
 **Beneficios del aislamiento:**
 - Un spike de tráfico en la aplicación no compite por recursos con componentes críticos del cluster

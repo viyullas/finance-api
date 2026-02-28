@@ -41,6 +41,7 @@ Infraestructura cloud-native en AWS para la plataforma de pagos de Pluxee/Cobee,
 ```
 .
 ├── Dockerfile                          # Optimizado: scratch, <20MB, non-root
+├── Makefile                            # make up / make down / make status
 ├── 1_docs/
 │   ├── README.md                       # Este archivo
 │   ├── ADR-01-DECISIONS.md             # Decisiones de arquitectura
@@ -126,9 +127,22 @@ Estrategia detallada en [ADR-02-LATENCY-STRATEGY.md](./ADR-02-LATENCY-STRATEGY.m
 
 ## Despliegue
 
-El despliegue completo tiene 6 fases: infraestructura (Terraform), configuración de kubeconfig, instalación de addons (ALB Controller, ESO), secretos, ArgoCD y verificación.
+### Quick Start
 
-Ver **[DEPLOYMENT-RUNBOOK.md](./DEPLOYMENT-RUNBOOK.md)** para el procedimiento detallado paso a paso.
+```bash
+make up      # Despliega todo (Spain + Mexico): terraform, docker, helm, argocd, apps
+make status  # Muestra estado de ambos clusters
+make down    # Destruye todo sin confirmaciones (entorno de pruebas)
+make help    # Lista todos los targets disponibles
+```
+
+### Prerequisitos
+
+AWS CLI, `terraform` >= 1.10, `helm` >= 3.x, `kubectl`, `make`, `docker`, `openssl`.
+
+### Procedimiento manual
+
+Ver **[DEPLOYMENT-RUNBOOK.md](./DEPLOYMENT-RUNBOOK.md)** para el procedimiento detallado paso a paso (6 fases).
 
 ## Módulos Terraform Utilizados
 

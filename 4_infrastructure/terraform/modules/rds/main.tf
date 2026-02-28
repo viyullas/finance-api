@@ -43,10 +43,9 @@ module "rds" {
   performance_insights_enabled    = true
   performance_insights_kms_key_id = var.kms_key_arn
 
-  # Deletion protection
-  deletion_protection              = true
-  skip_final_snapshot              = false
-  final_snapshot_identifier_prefix = "${var.identifier}-final"
+  # Deletion protection (disabled for test environments)
+  deletion_protection = false
+  skip_final_snapshot = true
 
   # Enhanced monitoring
   monitoring_interval = 60

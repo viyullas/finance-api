@@ -16,6 +16,7 @@ spec:
             acmCertificateArn: ACM_ARN_SPAIN
             rdsSecretArn: RDS_SECRET_ARN_SPAIN
             rdsEndpoint: RDS_ENDPOINT_SPAIN
+            appSecretId: APP_SECRET_ID_SPAIN
             compliance: GDPR
             dataResidency: EU
           - region: mexico
@@ -26,6 +27,7 @@ spec:
             acmCertificateArn: ACM_ARN_MEXICO
             rdsSecretArn: RDS_SECRET_ARN_MEXICO
             rdsEndpoint: RDS_ENDPOINT_MEXICO
+            appSecretId: APP_SECRET_ID_MEXICO
             compliance: LeyFederalMX
             dataResidency: MX
 
@@ -59,6 +61,8 @@ spec:
               value: "{{rdsSecretArn}}"
             - name: externalSecret.database.host
               value: "{{rdsEndpoint}}"
+            - name: externalSecret.remoteRefs.apiSecretKey.key
+              value: "{{appSecretId}}"
 
       destination:
         server: "{{clusterUrl}}"

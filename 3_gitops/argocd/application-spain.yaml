@@ -29,6 +29,8 @@ spec:
           value: "RDS_SECRET_ARN_SPAIN"
         - name: externalSecret.database.host
           value: "RDS_ENDPOINT_SPAIN"
+        - name: externalSecret.remoteRefs.apiSecretKey.key
+          value: "APP_SECRET_ID_SPAIN"
 
   destination:
     # In-cluster: ArgoCD corre en Spain, no necesita URL externa

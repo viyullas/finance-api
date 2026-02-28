@@ -9,6 +9,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
 
   backend "s3" {
@@ -58,7 +62,7 @@ locals {
 # KMS key for encryption
 resource "aws_kms_key" "main" {
   description             = "KMS key for ${local.name}"
-  deletion_window_in_days = 30
+  deletion_window_in_days = 7
   enable_key_rotation     = true
 
   policy = jsonencode({
@@ -116,7 +120,7 @@ resource "aws_cloudtrail" "main" {
 
 resource "aws_s3_bucket" "cloudtrail" {
   bucket        = "${local.name}-cloudtrail-logs"
-  force_destroy = false
+  force_destroy = true
   tags          = local.tags
 }
 
@@ -272,7 +276,7 @@ resource "aws_acm_certificate_validation" "app" {
 resource "aws_ecr_repository" "app" {
   name                 = "payment-latency-api"
   image_tag_mutability = "MUTABLE"
-  force_delete         = false
+  force_delete         = true
 
   image_scanning_configuration {
     scan_on_push = true
@@ -321,9 +325,15 @@ resource "aws_ecr_lifecycle_policy" "app" {
   })
 }
 
+# Random suffix to avoid Secrets Manager name collisions on destroy/recreate cycles
+resource "random_id" "secret_suffix" {
+  byte_length = 4
+}
+
 # Store API secret key in Secrets Manager (DB credentials managed by RDS directly)
 resource "aws_secretsmanager_secret" "app_secrets" {
-  name       = "${var.environment}/${var.region_name}/payment-latency-api"
-  kms_key_id = aws_kms_key.main.arn
-  tags       = local.tags
+  name                    = "${var.environment}/${var.region_name}/payment-latency-api-${random_id.secret_suffix.hex}"
+  kms_key_id              = aws_kms_key.main.arn
+  recovery_window_in_days = 0
+  tags                    = local.tags
 }

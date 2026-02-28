@@ -29,6 +29,8 @@ spec:
           value: "RDS_SECRET_ARN_MEXICO"
         - name: externalSecret.database.host
           value: "RDS_ENDPOINT_MEXICO"
+        - name: externalSecret.remoteRefs.apiSecretKey.key
+          value: "APP_SECRET_ID_MEXICO"
 
   destination:
     # Cluster remoto: ArgoCD conecta desde Spain via argocd cluster add

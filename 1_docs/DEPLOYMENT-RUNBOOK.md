@@ -2,13 +2,31 @@
 
 Procedimiento completo para desplegar la plataforma desde cero. Cada fase depende de que la anterior haya finalizado correctamente.
 
+## Quick Start (Makefile)
+
+Con todas las herramientas instaladas y el bucket S3 creado (ver prerequisitos):
+
+```bash
+make up        # Despliega todo: terraform, kubeconfig, docker, helm, secrets, argocd, apps
+make status    # Muestra estado de ambos clusters
+make down      # Destruye todo sin confirmaciones (entorno de pruebas)
+```
+
+Para ejecutar fases individuales: `make help` muestra todos los targets disponibles.
+
+> El resto de este documento describe el procedimiento manual paso a paso, útil como referencia o para depuración.
+
+---
+
 ## Prerequisitos
 
 - AWS CLI configurado con credenciales para ambas cuentas/regiones
 - `terraform` >= 1.10.0
 - `helm` >= 3.x
 - `kubectl`
-- `argocd` CLI
+- `make` (GNU Make)
+- `docker`
+- `openssl` (para generar secretos aleatorios)
 - Bucket S3 para el backend de Terraform (ver sección siguiente)
 
 ### Bucket S3 para Terraform State
@@ -405,11 +423,13 @@ sed "s|ECR_REGISTRY_SPAIN|$SPAIN_ECR_REGISTRY|g; \
      s|ACM_ARN_SPAIN|$SPAIN_CERT_ARN|g; \
      s|RDS_SECRET_ARN_SPAIN|$SPAIN_RDS_SECRET_ARN|g; \
      s|RDS_ENDPOINT_SPAIN|$SPAIN_RDS_ENDPOINT|g; \
+     s|APP_SECRET_ID_SPAIN|$SPAIN_APP_SECRET_ID|g; \
      s|CLUSTER_URL_MEXICO|$MEXICO_CLUSTER_URL|g; \
      s|ECR_REGISTRY_MEXICO|$MEXICO_ECR_REGISTRY|g; \
      s|ACM_ARN_MEXICO|$MEXICO_CERT_ARN|g; \
      s|RDS_SECRET_ARN_MEXICO|$MEXICO_RDS_SECRET_ARN|g; \
-     s|RDS_ENDPOINT_MEXICO|$MEXICO_RDS_ENDPOINT|g" \
+     s|RDS_ENDPOINT_MEXICO|$MEXICO_RDS_ENDPOINT|g; \
+     s|APP_SECRET_ID_MEXICO|$MEXICO_APP_SECRET_ID|g" \
   3_gitops/argocd/applicationset.yaml | kubectl --context spain apply -f -
 
 # Opcion B: Applications individuales (solo si no se usa ApplicationSet)
@@ -417,7 +437,8 @@ sed "s|ECR_REGISTRY_SPAIN|$SPAIN_ECR_REGISTRY|g; \
 sed "s|ECR_REGISTRY_SPAIN|$SPAIN_ECR_REGISTRY|g; \
      s|ACM_ARN_SPAIN|$SPAIN_CERT_ARN|g; \
      s|RDS_SECRET_ARN_SPAIN|$SPAIN_RDS_SECRET_ARN|g; \
-     s|RDS_ENDPOINT_SPAIN|$SPAIN_RDS_ENDPOINT|g" \
+     s|RDS_ENDPOINT_SPAIN|$SPAIN_RDS_ENDPOINT|g; \
+     s|APP_SECRET_ID_SPAIN|$SPAIN_APP_SECRET_ID|g" \
   3_gitops/argocd/application-spain.yaml | kubectl --context spain apply -f -
 
 # Mexico: cluster remoto, necesita URL externa
@@ -425,7 +446,8 @@ sed "s|CLUSTER_URL_MEXICO|$MEXICO_CLUSTER_URL|g; \
      s|ECR_REGISTRY_MEXICO|$MEXICO_ECR_REGISTRY|g; \
      s|ACM_ARN_MEXICO|$MEXICO_CERT_ARN|g; \
      s|RDS_SECRET_ARN_MEXICO|$MEXICO_RDS_SECRET_ARN|g; \
-     s|RDS_ENDPOINT_MEXICO|$MEXICO_RDS_ENDPOINT|g" \
+     s|RDS_ENDPOINT_MEXICO|$MEXICO_RDS_ENDPOINT|g; \
+     s|APP_SECRET_ID_MEXICO|$MEXICO_APP_SECRET_ID|g" \
   3_gitops/argocd/application-mexico.yaml | kubectl --context spain apply -f -
 ```
 
