@@ -194,7 +194,7 @@ module "eks" {
   subnet_ids   = module.vpc.private_subnets
   kms_key_arn  = aws_kms_key.main.arn
 
-  cluster_endpoint_public_access_cidrs = var.cluster_endpoint_public_access_cidrs
+  cluster_endpoint_public_access_cidrs = var.argocd_source_cidr != "" ? concat(var.cluster_endpoint_public_access_cidrs, ["${var.argocd_source_cidr}/32"]) : var.cluster_endpoint_public_access_cidrs
 
   # System node group: cluster components (CoreDNS, ALB Controller, ESO)
   system_node_instance_types = var.system_node_instance_types

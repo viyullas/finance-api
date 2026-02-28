@@ -27,3 +27,8 @@ output "vpc_cidr_block" {
   description = "VPC CIDR block"
   value       = module.vpc.vpc_cidr_block
 }
+
+output "nat_public_ips" {
+  description = "Public IPs of the NAT Gateways"
+  value       = module.vpc.nat_public_ips
+}

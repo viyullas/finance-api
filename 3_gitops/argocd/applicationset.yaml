@@ -68,6 +68,12 @@ spec:
         server: "{{clusterUrl}}"
         namespace: payment-api
 
+      ignoreDifferences:
+        - group: external-secrets.io
+          kind: ExternalSecret
+          jsonPointers:
+            - /status
+
       syncPolicy:
         automated:
           prune: true
@@ -75,6 +81,7 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
+          - RespectIgnoreDifferences=true
         retry:
           limit: 3
           backoff:

@@ -72,3 +72,8 @@ output "db_connection_endpoint" {
   description = "Database connection endpoint for applications (proxy if enabled, direct RDS otherwise)"
   value       = module.rds.db_connection_endpoint
 }
+
+output "nat_public_ip" {
+  description = "Public IP of the NAT Gateway (used by ArgoCD server to reach Mexico EKS endpoint)"
+  value       = module.vpc.nat_public_ips[0]
+}

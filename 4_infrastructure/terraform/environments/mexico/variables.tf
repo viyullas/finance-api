@@ -76,6 +76,12 @@ variable "cluster_endpoint_public_access_cidrs" {
   default     = ["83.33.97.233/32"]
 }
 
+variable "argocd_source_cidr" {
+  description = "Additional CIDR (Spain NAT Gateway IP) added to EKS endpoint allowlist so ArgoCD server can reach Mexico cluster. Passed automatically by the Makefile after Spain is deployed."
+  type        = string
+  default     = ""
+}
+
 variable "system_node_instance_types" {
   description = "EC2 instance types for system node group"
   type        = list(string)

@@ -76,6 +76,12 @@ variable "cluster_endpoint_public_access_cidrs" {
   default     = ["83.33.97.233/32"]
 }
 
+variable "argocd_source_cidr" {
+  description = "Additional CIDR added to EKS endpoint allowlist. Not used for Spain (ArgoCD runs in-cluster) but kept for structural consistency with Mexico."
+  type        = string
+  default     = ""
+}
+
 variable "system_node_instance_types" {
   description = "EC2 instance types for system node group"
   type        = list(string)

@@ -13,7 +13,7 @@ TF_MEXICO  := $(TF_BASE)/environments/mexico
 HELM_CHART := 2_application/helm-charts/payment-latency-api
 ARGOCD_DIR := 3_gitops/argocd
 NAMESPACE  := payment-api
-IMAGE_TAG  ?= latest
+IMAGE_TAG  ?= $(shell grep '^\s*tag:' $(HELM_CHART)/values.yaml | head -1 | awk '{print $$2}' | tr -d '"')
 
 # ─── Helpers ─────────────────────────────────────────────────────
 define header
@@ -30,7 +30,7 @@ mexico_tf = $(shell cd $(TF_MEXICO) && terraform output -raw $(1) 2>/dev/null)
 
 # ClusterSecretStore YAML template
 define CSS_YAML
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ClusterSecretStore
 metadata:
   name: aws-secrets-manager
@@ -103,7 +103,9 @@ tf-spain: tf-init-spain ## Terraform apply Spain (eu-south-2)
 
 .PHONY: tf-mexico
 tf-mexico: tf-init-mexico ## Terraform apply Mexico (us-east-1)
-	cd $(TF_MEXICO) && terraform apply -auto-approve
+	$(eval SPAIN_NAT_IP := $(call spain_tf,nat_public_ip))
+	cd $(TF_MEXICO) && terraform apply -auto-approve \
+		$(if $(SPAIN_NAT_IP),-var 'argocd_source_cidr=$(SPAIN_NAT_IP)',)
 
 .PHONY: tf-plan-spain
 tf-plan-spain: tf-init-spain ## Terraform plan Spain
@@ -190,6 +192,12 @@ helm-deps-spain: ## Install ALB Controller + ESO on Spain
 		--set serviceAccount.name=external-secrets-sa \
 		--set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=$(ESO_ROLE) \
 		--wait
+	@echo "Waiting for ESO CRDs to be registered..."; \
+	for i in $$(seq 1 30); do \
+		kubectl --context spain get crd clustersecretstores.external-secrets.io &>/dev/null && break; \
+		echo "  attempt $$i/30 - CRD not ready yet..."; \
+		sleep 5; \
+	done
 	@echo "$$CSS_YAML" | sed 's/__REGION__/$(SPAIN_REGION)/' | kubectl --context spain apply -f -
 	$(call ok,Spain helm deps installed)
 
@@ -215,6 +223,12 @@ helm-deps-mexico: ## Install ALB Controller + ESO on Mexico
 		--set serviceAccount.name=external-secrets-sa \
 		--set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=$(ESO_ROLE) \
 		--wait
+	@echo "Waiting for ESO CRDs to be registered..."; \
+	for i in $$(seq 1 30); do \
+		kubectl --context mexico get crd clustersecretstores.external-secrets.io &>/dev/null && break; \
+		echo "  attempt $$i/30 - CRD not ready yet..."; \
+		sleep 5; \
+	done
 	@echo "$$CSS_YAML" | sed 's/__REGION__/$(MEXICO_REGION)/' | kubectl --context mexico apply -f -
 	$(call ok,Mexico helm deps installed)
 
