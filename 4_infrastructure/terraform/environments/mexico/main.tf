@@ -213,6 +213,8 @@ module "eks" {
     "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:rds!db-*"
   ]
 
+  hosted_zone_arns = [data.aws_route53_zone.main.arn]
+
   tags = local.tags
 }
 

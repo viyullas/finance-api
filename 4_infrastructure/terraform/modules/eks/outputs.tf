@@ -33,6 +33,11 @@ output "lb_controller_role_arn" {
   value       = module.lb_controller_irsa.iam_role_arn
 }
 
+output "external_dns_role_arn" {
+  description = "IAM role ARN for external-dns (IRSA)"
+  value       = module.external_dns_irsa.iam_role_arn
+}
+
 output "node_security_group_id" {
   description = "Security group ID attached to EKS nodes"
   value       = module.eks.node_security_group_id

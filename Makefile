@@ -171,10 +171,11 @@ docker-build-push: ## Build and push image to both ECR repos
 helm-deps: helm-deps-spain helm-deps-mexico ## Install ALB Controller + ESO on both clusters
 
 .PHONY: helm-deps-spain
-helm-deps-spain: ## Install ALB Controller + ESO on Spain
-	$(eval LB_ROLE  := $(call spain_tf,lb_controller_role_arn))
-	$(eval ESO_ROLE := $(call spain_tf,external_secrets_role_arn))
-	$(eval VPC_ID   := $(call spain_tf,vpc_id))
+helm-deps-spain: ## Install ALB Controller + ESO + external-dns on Spain
+	$(eval LB_ROLE   := $(call spain_tf,lb_controller_role_arn))
+	$(eval ESO_ROLE  := $(call spain_tf,external_secrets_role_arn))
+	$(eval DNS_ROLE  := $(call spain_tf,external_dns_role_arn))
+	$(eval VPC_ID    := $(call spain_tf,vpc_id))
 	helm repo add eks https://aws.github.io/eks-charts 2>/dev/null || true
 	helm repo add external-secrets https://charts.external-secrets.io 2>/dev/null || true
 	helm repo update
@@ -199,13 +200,26 @@ helm-deps-spain: ## Install ALB Controller + ESO on Spain
 		sleep 5; \
 	done
 	@echo "$$CSS_YAML" | sed 's/__REGION__/$(SPAIN_REGION)/' | kubectl --context spain apply -f -
+	helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
+	helm upgrade --install external-dns bitnami/external-dns \
+		--namespace external-dns --kube-context spain \
+		--set provider=aws \
+		--set aws.region=$(SPAIN_REGION) \
+		--set serviceAccount.create=true \
+		--set serviceAccount.name=external-dns-sa \
+		--set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=$(DNS_ROLE) \
+		--set policy=upsert-only \
+		--set txtOwnerId=$(SPAIN_CLUSTER) \
+		--set sources="{ingress}" \
+		--wait
 	$(call ok,Spain helm deps installed)
 
 .PHONY: helm-deps-mexico
-helm-deps-mexico: ## Install ALB Controller + ESO on Mexico
-	$(eval LB_ROLE  := $(call mexico_tf,lb_controller_role_arn))
-	$(eval ESO_ROLE := $(call mexico_tf,external_secrets_role_arn))
-	$(eval VPC_ID   := $(call mexico_tf,vpc_id))
+helm-deps-mexico: ## Install ALB Controller + ESO + external-dns on Mexico
+	$(eval LB_ROLE   := $(call mexico_tf,lb_controller_role_arn))
+	$(eval ESO_ROLE  := $(call mexico_tf,external_secrets_role_arn))
+	$(eval DNS_ROLE  := $(call mexico_tf,external_dns_role_arn))
+	$(eval VPC_ID    := $(call mexico_tf,vpc_id))
 	helm repo add eks https://aws.github.io/eks-charts 2>/dev/null || true
 	helm repo add external-secrets https://charts.external-secrets.io 2>/dev/null || true
 	helm repo update
@@ -230,6 +244,18 @@ helm-deps-mexico: ## Install ALB Controller + ESO on Mexico
 		sleep 5; \
 	done
 	@echo "$$CSS_YAML" | sed 's/__REGION__/$(MEXICO_REGION)/' | kubectl --context mexico apply -f -
+	helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
+	helm upgrade --install external-dns bitnami/external-dns \
+		--namespace external-dns --kube-context mexico \
+		--set provider=aws \
+		--set aws.region=$(MEXICO_REGION) \
+		--set serviceAccount.create=true \
+		--set serviceAccount.name=external-dns-sa \
+		--set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=$(DNS_ROLE) \
+		--set policy=upsert-only \
+		--set txtOwnerId=$(MEXICO_CLUSTER) \
+		--set sources="{ingress}" \
+		--wait
 	$(call ok,Mexico helm deps installed)
 
 # ═════════════════════════════════════════════════════════════════

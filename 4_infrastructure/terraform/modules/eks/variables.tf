@@ -80,6 +80,12 @@ variable "app_node_desired_size" {
   default     = 3
 }
 
+variable "hosted_zone_arns" {
+  description = "Route53 hosted zone ARNs that external-dns is allowed to manage"
+  type        = list(string)
+  default     = ["arn:aws:route53:::hostedzone/*"]
+}
+
 variable "secrets_manager_arns" {
   description = "ARNs of Secrets Manager secrets for IRSA"
   type        = list(string)
