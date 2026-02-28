@@ -179,7 +179,6 @@ helm-deps-spain: ## Install ALB Controller + ESO + external-dns on Spain
 	helm repo add eks https://aws.github.io/eks-charts 2>/dev/null || true
 	helm repo add external-secrets https://charts.external-secrets.io 2>/dev/null || true
 	helm repo update
-	kubectl --context spain delete mutatingwebhookconfiguration aws-load-balancer-webhook 2>/dev/null || true
 	helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
 		--namespace kube-system --kube-context spain \
 		--set clusterName=$(SPAIN_CLUSTER) \
@@ -201,18 +200,22 @@ helm-deps-spain: ## Install ALB Controller + ESO + external-dns on Spain
 		sleep 5; \
 	done
 	@echo "$$CSS_YAML" | sed 's/__REGION__/$(SPAIN_REGION)/' | kubectl --context spain apply -f -
-	helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
-	helm upgrade --install external-dns bitnami/external-dns \
+	helm repo add external-dns https://kubernetes-sigs.github.io/external-dns/ 2>/dev/null || true
+	helm repo update external-dns
+	helm upgrade --install external-dns external-dns/external-dns \
 		--namespace external-dns --create-namespace --kube-context spain \
-		--set provider=aws \
-		--set aws.region=$(SPAIN_REGION) \
+		--set provider.name=aws \
+		--set "env[0].name=AWS_DEFAULT_REGION" \
+		--set "env[0].value=$(SPAIN_REGION)" \
 		--set serviceAccount.create=true \
 		--set serviceAccount.name=external-dns-sa \
 		--set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=$(DNS_ROLE) \
 		--set policy=upsert-only \
 		--set txtOwnerId=$(SPAIN_CLUSTER) \
-		--set sources="{ingress}" \
+		--set "sources[0]=ingress" \
 		--wait
+	kubectl --context spain -n external-dns rollout restart deployment/external-dns 2>/dev/null || true
+	kubectl --context spain -n external-dns rollout status deployment/external-dns --timeout=60s 2>/dev/null || true
 	$(call ok,Spain helm deps installed)
 
 .PHONY: helm-deps-mexico
@@ -224,7 +227,6 @@ helm-deps-mexico: ## Install ALB Controller + ESO + external-dns on Mexico
 	helm repo add eks https://aws.github.io/eks-charts 2>/dev/null || true
 	helm repo add external-secrets https://charts.external-secrets.io 2>/dev/null || true
 	helm repo update
-	kubectl --context mexico delete mutatingwebhookconfiguration aws-load-balancer-webhook 2>/dev/null || true
 	helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
 		--namespace kube-system --kube-context mexico \
 		--set clusterName=$(MEXICO_CLUSTER) \
@@ -246,18 +248,22 @@ helm-deps-mexico: ## Install ALB Controller + ESO + external-dns on Mexico
 		sleep 5; \
 	done
 	@echo "$$CSS_YAML" | sed 's/__REGION__/$(MEXICO_REGION)/' | kubectl --context mexico apply -f -
-	helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
-	helm upgrade --install external-dns bitnami/external-dns \
+	helm repo add external-dns https://kubernetes-sigs.github.io/external-dns/ 2>/dev/null || true
+	helm repo update external-dns
+	helm upgrade --install external-dns external-dns/external-dns \
 		--namespace external-dns --create-namespace --kube-context mexico \
-		--set provider=aws \
-		--set aws.region=$(MEXICO_REGION) \
+		--set provider.name=aws \
+		--set "env[0].name=AWS_DEFAULT_REGION" \
+		--set "env[0].value=$(MEXICO_REGION)" \
 		--set serviceAccount.create=true \
 		--set serviceAccount.name=external-dns-sa \
 		--set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=$(DNS_ROLE) \
 		--set policy=upsert-only \
 		--set txtOwnerId=$(MEXICO_CLUSTER) \
-		--set sources="{ingress}" \
+		--set "sources[0]=ingress" \
 		--wait
+	kubectl --context mexico -n external-dns rollout restart deployment/external-dns 2>/dev/null || true
+	kubectl --context mexico -n external-dns rollout status deployment/external-dns --timeout=60s 2>/dev/null || true
 	$(call ok,Mexico helm deps installed)
 
 # ═════════════════════════════════════════════════════════════════
@@ -380,6 +386,7 @@ uninstall-helm: ## Uninstall all Helm releases (ALB Controller last, waits for A
 		echo "Spain cluster reachable, uninstalling helm releases..."; \
 		helm uninstall argocd -n argocd --kube-context spain 2>/dev/null || true; \
 		helm uninstall external-secrets -n external-secrets --kube-context spain 2>/dev/null || true; \
+		helm uninstall external-dns -n external-dns --kube-context spain 2>/dev/null || true; \
 		echo "Deleting any remaining Ingress resources in Spain..."; \
 		kubectl --context spain delete ingress --all-namespaces --all 2>/dev/null || true; \
 		echo "Waiting for ALB Controller to clean up ALBs and security groups..."; \
@@ -395,13 +402,14 @@ uninstall-helm: ## Uninstall all Helm releases (ALB Controller last, waits for A
 			sleep 15; \
 		done; \
 		helm uninstall aws-load-balancer-controller -n kube-system --kube-context spain 2>/dev/null || true; \
-		kubectl --context spain delete namespace argocd external-secrets --wait=false 2>/dev/null || true; \
+		kubectl --context spain delete namespace argocd external-secrets external-dns --wait=false 2>/dev/null || true; \
 	else \
 		echo "Spain cluster not reachable, skipping helm uninstall"; \
 	fi
 	@if [ "$(call check_cluster,mexico)" = "yes" ]; then \
 		echo "Mexico cluster reachable, uninstalling helm releases..."; \
 		helm uninstall external-secrets -n external-secrets --kube-context mexico 2>/dev/null || true; \
+		helm uninstall external-dns -n external-dns --kube-context mexico 2>/dev/null || true; \
 		echo "Deleting any remaining Ingress resources in Mexico..."; \
 		kubectl --context mexico delete ingress --all-namespaces --all 2>/dev/null || true; \
 		echo "Waiting for ALB Controller to clean up ALBs and security groups..."; \
@@ -417,7 +425,7 @@ uninstall-helm: ## Uninstall all Helm releases (ALB Controller last, waits for A
 			sleep 15; \
 		done; \
 		helm uninstall aws-load-balancer-controller -n kube-system --kube-context mexico 2>/dev/null || true; \
-		kubectl --context mexico delete namespace external-secrets --wait=false 2>/dev/null || true; \
+		kubectl --context mexico delete namespace external-secrets external-dns --wait=false 2>/dev/null || true; \
 	else \
 		echo "Mexico cluster not reachable, skipping helm uninstall"; \
 	fi
