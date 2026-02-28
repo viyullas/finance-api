@@ -2,77 +2,77 @@
 
 ## Container Security
 
-- [x] **Imagen base mínima**: `scratch` (0 paquetes, 0 CVEs potenciales)
-- [x] **Multi-stage build**: Binario compilado en builder, solo binario copiado a producción
-- [x] **Non-root**: Container ejecuta como UID 65534 (nobody)
-- [x] **Imagen < 20MB**: Binario estático Go ~8MB + certificados CA
-- [x] **Sin secretos en imagen**: Variables de entorno inyectadas en runtime
-- [x] **Read-only filesystem**: `readOnlyRootFilesystem: true` en securityContext
-- [x] **Sin privilege escalation**: `allowPrivilegeEscalation: false`
+- [x] **Minimal base image**: `scratch` (0 packages, 0 potential CVEs)
+- [x] **Multi-stage build**: Binary compiled in builder stage, only binary copied to production
+- [x] **Non-root**: Container runs as UID 65534 (nobody)
+- [x] **Image < 20MB**: Static Go binary ~8MB + CA certificates
+- [x] **No secrets in image**: Environment variables injected at runtime
+- [x] **Read-only filesystem**: `readOnlyRootFilesystem: true` in securityContext
+- [x] **No privilege escalation**: `allowPrivilegeEscalation: false`
 - [x] **Capabilities dropped**: `drop: ALL`
 - [x] **Seccomp profile**: `RuntimeDefault`
 
 ## Secrets Management
 
-- [x] **Zero secrets en Git**: Ningún secreto en código, Dockerfile, values.yaml ni manifiestos
-- [x] **External Secrets Operator**: Secretos sincronizados desde AWS Secrets Manager
-- [x] **IRSA authentication**: ESO se autentica con IAM role, sin credenciales estáticas
-- [x] **Secretos por región**: España en eu-south-2, México en us-east-1
-- [x] **Rotación soportada**: refreshInterval configurable en ExternalSecret
-- [x] **Cifrado en Secrets Manager**: Secrets cifrados con KMS key dedicada
+- [x] **Zero secrets in Git**: No secrets in code, Dockerfile, values.yaml or manifests
+- [x] **External Secrets Operator**: Secrets synchronised from AWS Secrets Manager
+- [x] **IRSA authentication**: ESO authenticates with IAM role, no static credentials
+- [x] **Secrets per region**: Spain in eu-south-2, Mexico in us-east-1
+- [x] **Rotation supported**: Configurable refreshInterval in ExternalSecret
+- [x] **Encrypted in Secrets Manager**: Secrets encrypted with dedicated KMS key
 
 ## Network Security
 
-- [x] **TLS en tránsito**: ALB termina TLS 1.2+, Ingress fuerza HTTPS redirect
-- [x] **Subnets privadas**: Pods EKS en private subnets, sin IP pública
-- [x] **Database aislada**: RDS en database subnets sin acceso a internet
-- [x] **Security groups restrictivos**: RDS solo acepta tráfico desde EKS nodes
-- [x] **VPC Flow Logs**: Habilitados para auditoría de tráfico
-- [x] **EKS endpoint restringible**: `cluster_endpoint_public_access_cidrs` configurable (default abierto, restringir en producción)
+- [x] **TLS in transit**: ALB terminates TLS 1.2+, Ingress enforces HTTPS redirect
+- [x] **Private subnets**: EKS pods in private subnets, no public IP
+- [x] **Isolated database**: RDS in database subnets with no internet access
+- [x] **Restrictive security groups**: RDS only accepts traffic from EKS nodes
+- [x] **VPC Flow Logs**: Enabled for traffic auditing
+- [x] **Restrictable EKS endpoint**: `cluster_endpoint_public_access_cidrs` configurable (default open, restrict in production)
 
 ## Encryption
 
-- [x] **En reposo - RDS**: `storage_encrypted = true` con KMS
-- [x] **En reposo - EBS**: Cifrado con KMS para volúmenes de nodos EKS
-- [x] **En reposo - K8s secrets**: Envelope encryption con KMS en EKS
-- [x] **En reposo - S3**: Buckets de CloudTrail cifrados con KMS
-- [x] **En tránsito**: TLS forzado en ALB, RDS con `ssl = 1`
+- [x] **At rest - RDS**: `storage_encrypted = true` with KMS
+- [x] **At rest - EBS**: KMS encryption for EKS node volumes
+- [x] **At rest - K8s secrets**: Envelope encryption with KMS in EKS
+- [x] **At rest - S3**: CloudTrail buckets encrypted with KMS
+- [x] **In transit**: TLS enforced on ALB, RDS with `ssl = 1`
 - [x] **KMS key rotation**: `enable_key_rotation = true`
 
 ## Identity & Access Management
 
-- [x] **Least privilege**: Roles IAM con permisos mínimos por servicio
-- [x] **IRSA**: Cada componente K8s con su propio IAM role (ESO, LB Controller, EBS CSI)
-- [x] **No credenciales estáticas**: Todo basado en roles asumidos
-- [x] **Service accounts dedicados**: Un service account por aplicación
+- [x] **Least privilege**: IAM roles with minimal permissions per service
+- [x] **IRSA**: Each K8s component with its own IAM role (ESO, LB Controller, EBS CSI)
+- [x] **No static credentials**: Everything based on assumed roles
+- [x] **Dedicated service accounts**: One service account per application
 
 ## Data Residency & Compliance
 
-- [x] **GDPR (España)**: Datos EU en eu-south-2, tags `DataResidency=EU`, `Compliance=GDPR`
-- [x] **Ley Federal MX (México)**: Datos MX en us-east-1, tags `DataResidency=MX`, `Compliance=LeyFederalMX`
-- [x] **Sin replicación cross-region**: Datos y secretos no se replican entre regiones
-- [x] **Etiquetado de recursos**: Todos los recursos AWS etiquetados con región y compliance
+- [x] **GDPR (Spain)**: EU data in eu-south-2, tags `DataResidency=EU`, `Compliance=GDPR`
+- [x] **Federal Law MX (Mexico)**: MX data in us-east-1, tags `DataResidency=MX`, `Compliance=LeyFederalMX`
+- [x] **No cross-region replication**: Data and secrets are not replicated between regions
+- [x] **Resource tagging**: All AWS resources tagged with region and compliance
 
 ## Auditing & Monitoring
 
-- [x] **CloudTrail**: Habilitado en ambas regiones con log file validation
-- [x] **CloudTrail cifrado**: Logs en S3 cifrados con KMS
-- [x] **VPC Flow Logs**: Almacenados en CloudWatch con IAM role dedicado
-- [x] **Prometheus metrics**: ServiceMonitor para scraping de métricas de la app
-- [x] **Application logging**: Logs estructurados, connection strings enmascarados
+- [x] **CloudTrail**: Enabled in both regions with log file validation
+- [x] **CloudTrail encrypted**: Logs in S3 encrypted with KMS
+- [x] **VPC Flow Logs**: Stored in CloudWatch with dedicated IAM role
+- [x] **Prometheus metrics**: ServiceMonitor for application metrics scraping
+- [x] **Application logging**: Structured logs, connection strings masked
 
 ## Kubernetes Security
 
 - [x] **Pod Security Context**: `runAsNonRoot`, `runAsUser`, `fsGroup`
 - [x] **Container Security Context**: capabilities dropped, no escalation, read-only fs
-- [x] **Resource limits**: CPU y memoria definidos para prevenir noisy neighbors
-- [x] **Probes configurados**: Liveness y readiness para health checking
-- [x] **HPA**: Auto-scaling para absorber picos sin degradar seguridad
-- [x] **PodDisruptionBudget**: `minAvailable: 1` protege disponibilidad durante disrupciones voluntarias
-- [x] **Rolling update strategy**: `maxUnavailable: 0` garantiza zero downtime en deploys
+- [x] **Resource limits**: CPU and memory defined to prevent noisy neighbours
+- [x] **Probes configured**: Liveness and readiness for health checking
+- [x] **HPA**: Auto-scaling to absorb spikes without degrading security
+- [x] **PodDisruptionBudget**: `minAvailable: 1` protects availability during voluntary disruptions
+- [x] **Rolling update strategy**: `maxUnavailable: 0` guarantees zero downtime on deploys
 
 ## Supply Chain
 
-- [x] **Módulos Terraform documentados**: Fuente y versión de cada módulo público
-- [x] **go.sum**: Checksums de dependencias Go verificados
-- [x] **Imágenes base con tags fijos**: `golang:1.21-alpine` (no latest)
+- [x] **Documented Terraform modules**: Source and version of each public module
+- [x] **go.sum**: Go dependency checksums verified
+- [x] **Base images with fixed tags**: `golang:1.21-alpine` (not latest)

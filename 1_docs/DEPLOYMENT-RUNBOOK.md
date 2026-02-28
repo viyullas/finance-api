@@ -1,20 +1,20 @@
-# Runbook de Despliegue
+# Deployment Runbook
 
-Procedimiento manual paso a paso para desplegar la plataforma desde cero. Cada fase depende de que la anterior haya finalizado correctamente.
+Step-by-step manual procedure for deploying the platform from scratch. Each phase depends on the previous one completing successfully.
 
-> Para el despliegue automatizado (`make up` / `make down`), prerequisitos y configuracion, ver el [README](../README.md#quick-start) del proyecto.
+> For automated deployment (`make up` / `make down`), prerequisites and configuration, see the project [README](../README.md#quick-start).
 
 ---
 
-## Prerequisitos
+## Prerequisites
 
-Este runbook asume que ya tienes configurados todos los prerequisitos listados en el [README](../README.md#prerequisitos) (herramientas, bucket S3, hosted zone).
+This runbook assumes you have already configured all prerequisites listed in the [README](../README.md#prerequisites) (tools, S3 bucket, hosted zone).
 
-### Bucket S3 para Terraform State
+### S3 Bucket for Terraform State
 
-Backend común para ambos entornos, cada uno con key independiente. El locking usa S3 native conditional writes (Terraform >= 1.10), no requiere DynamoDB.
+Shared backend for both environments, each with an independent key. Locking uses S3 native conditional writes (Terraform >= 1.10), no DynamoDB required.
 
-El bucket debe crearse manualmente antes de ejecutar `terraform init`:
+The bucket must be created manually before running `terraform init`:
 
 ```bash
 aws s3api create-bucket \
@@ -31,25 +31,25 @@ aws s3api put-public-access-block \
   --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 ```
 
-Características requeridas:
-- **Región:** `eu-south-2`
-- **Versionado:** activado (permite recuperar states anteriores)
-- **Cifrado:** SSE-S3 (por defecto en buckets nuevos)
-- **Acceso público:** bloqueado
+Required characteristics:
+- **Region:** `eu-south-2`
+- **Versioning:** enabled (allows recovery of previous states)
+- **Encryption:** SSE-S3 (default on new buckets)
+- **Public access:** blocked
 
-> **Para usar tu propio bucket:** cambiar el nombre en `4_infrastructure/terraform/environments/{spain,mexico}/main.tf` → bloque `backend "s3"` (actual: `aabella-terraform-backends`).
+> **To use your own bucket:** change the name in `4_infrastructure/terraform/environments/{spain,mexico}/main.tf` → `backend "s3"` block (current: `aabella-terraform-backends`).
 
-### Hosted Zone en Route53
+### Hosted Zone in Route53
 
-Se necesita una hosted zone en Route53 para la validación DNS de los certificados ACM. Debe existir antes de `terraform apply`.
+A Route53 hosted zone is required for ACM certificate DNS validation. It must exist before `terraform apply`.
 
-> **Para usar tu propio dominio:** cambiar las variables `hosted_zone_name` y `app_domain` en `4_infrastructure/terraform/environments/{spain,mexico}/variables.tf` (actual: `aws.lacloaca.com`, `api-es.aws.lacloaca.com`, `api-mx.aws.lacloaca.com`).
+> **To use your own domain:** change the `hosted_zone_name` and `app_domain` variables in `4_infrastructure/terraform/environments/{spain,mexico}/variables.tf` (current: `aws.lacloaca.com`, `api-es.aws.lacloaca.com`, `api-mx.aws.lacloaca.com`).
 
 ---
 
-## Fase 1 — Infraestructura (Terraform)
+## Phase 1 — Infrastructure (Terraform)
 
-Crea VPC, EKS, RDS, RDS Proxy, KMS, CloudTrail, IRSA roles y secrets vacíos en Secrets Manager.
+Creates VPC, EKS, RDS, RDS Proxy, KMS, CloudTrail, IRSA roles and empty secrets in Secrets Manager.
 
 ```bash
 # Spain (eu-south-2)
@@ -65,10 +65,10 @@ terraform plan -out=mexico.tfplan
 terraform apply mexico.tfplan
 ```
 
-### Exportar outputs (una sola consulta por region)
+### Export outputs (single query per region)
 
 ```bash
-# Spain — una sola llamada al state, todo en un JSON
+# Spain — single state call, everything in one JSON
 cd 4_infrastructure/terraform/environments/spain
 terraform output -json > /tmp/spain-outputs.json
 
@@ -76,13 +76,13 @@ terraform output -json > /tmp/spain-outputs.json
 cd ../mexico
 terraform output -json > /tmp/mexico-outputs.json
 
-# Volver a la raiz del proyecto (los comandos siguientes usan rutas relativas)
+# Return to project root (subsequent commands use relative paths)
 cd ../../../../
 ```
 
-### Cargar variables de los outputs
+### Load variables from outputs
 
-Todas las fases siguientes usan estas variables. Ejecutar en la misma sesión de shell:
+All subsequent phases use these variables. Run in the same shell session:
 
 ```bash
 # Spain
@@ -112,32 +112,31 @@ MEXICO_APP_SECRET_ID=$(jq -r '.app_secret_id.value' /tmp/mexico-outputs.json)
 MEXICO_REGION="us-east-1"
 ```
 
-### Build y push de la imagen Docker a ECR
+### Docker image build and push to ECR
 
 ```bash
-# Login en ECR (Spain) — variables ya cargadas del JSON
+# Login to ECR (Spain) — variables already loaded from JSON
 aws ecr get-login-password --region "$SPAIN_REGION" | docker login --username AWS --password-stdin ${SPAIN_ECR%%/*}
 
-# Build y push
+# Build and push
 docker build -t ${SPAIN_ECR}:1.0.0 .
 docker push ${SPAIN_ECR}:1.0.0
 
-# Login en ECR (Mexico)
+# Login to ECR (Mexico)
 aws ecr get-login-password --region "$MEXICO_REGION" | docker login --username AWS --password-stdin ${MEXICO_ECR%%/*}
 
-# Push a Mexico (misma imagen)
+# Push to Mexico (same image)
 docker tag ${SPAIN_ECR}:1.0.0 ${MEXICO_ECR}:1.0.0
 docker push ${MEXICO_ECR}:1.0.0
 ```
 
 ---
 
-## Fase 2 — Configurar kubeconfig
+## Phase 2 — Configure kubeconfig
 
-> Las variables `$SPAIN_CLUSTER`, `$SPAIN_REGION`, `$MEXICO_CLUSTER`, `$MEXICO_REGION` ya están cargadas del JSON exportado en la Fase 1.
+> Variables `$SPAIN_CLUSTER`, `$SPAIN_REGION`, `$MEXICO_CLUSTER`, `$MEXICO_REGION` are already loaded from the JSON exported in Phase 1.
 
 ```bash
-
 # Spain
 aws eks update-kubeconfig \
   --name "$SPAIN_CLUSTER" \
@@ -151,7 +150,7 @@ aws eks update-kubeconfig \
   --alias mexico
 ```
 
-Verificar acceso a ambos clusters:
+Verify access to both clusters:
 
 ```bash
 kubectl --context spain get nodes
@@ -160,19 +159,19 @@ kubectl --context mexico get nodes
 
 ---
 
-## Fase 3 — Cluster Addons (ambas regiones)
+## Phase 3 — Cluster Addons (both regions)
 
-Estos componentes deben instalarse en **ambos clusters** antes de que las aplicaciones puedan funcionar. Sin ellos, los Ingress no crean ALBs y los ExternalSecrets no sincronizan.
+These components must be installed in **both clusters** before applications can function. Without them, Ingresses will not create ALBs and ExternalSecrets will not sync.
 
 ### 3.1 — AWS Load Balancer Controller
 
-Necesario para que los recursos `Ingress` creen ALBs reales en AWS. Sin este controller, el Ingress queda sin efecto.
+Required for `Ingress` resources to create real ALBs in AWS. Without this controller, the Ingress has no effect.
 
 ```bash
 helm repo add eks https://aws.github.io/eks-charts
 helm repo update
 
-# Spain — $SPAIN_LB_ROLE_ARN ya cargada del JSON
+# Spain — $SPAIN_LB_ROLE_ARN already loaded from JSON
 kubectl --context spain create namespace kube-system 2>/dev/null || true
 
 helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
@@ -187,7 +186,7 @@ helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
   --set "tolerations[0].value=system" \
   --set "tolerations[0].effect=NoSchedule"
 
-# Mexico — $MEXICO_LB_ROLE_ARN ya cargada del JSON
+# Mexico — $MEXICO_LB_ROLE_ARN already loaded from JSON
 helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
   --kube-context mexico \
   -n kube-system \
@@ -201,7 +200,7 @@ helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
   --set "tolerations[0].effect=NoSchedule"
 ```
 
-Verificar:
+Verify:
 
 ```bash
 kubectl --context spain -n kube-system get pods -l app.kubernetes.io/name=aws-load-balancer-controller
@@ -210,13 +209,13 @@ kubectl --context mexico -n kube-system get pods -l app.kubernetes.io/name=aws-l
 
 ### 3.2 — External Secrets Operator (ESO)
 
-Necesario para que los recursos `ExternalSecret` sincronicen secretos desde AWS Secrets Manager. Sin ESO, los pods no tendrán `DATABASE_URL` ni `API_SECRET_KEY`.
+Required for `ExternalSecret` resources to sync secrets from AWS Secrets Manager. Without ESO, pods will not have `DATABASE_URL` or `API_SECRET_KEY`.
 
 ```bash
 helm repo add external-secrets https://charts.external-secrets.io
 helm repo update
 
-# Spain — $SPAIN_ESO_ROLE_ARN ya cargada del JSON
+# Spain — $SPAIN_ESO_ROLE_ARN already loaded from JSON
 helm install external-secrets external-secrets/external-secrets \
   --kube-context spain \
   -n external-secrets --create-namespace \
@@ -236,7 +235,7 @@ helm install external-secrets external-secrets/external-secrets \
   --set "certController.tolerations[0].value=system" \
   --set "certController.tolerations[0].effect=NoSchedule"
 
-# Mexico — $MEXICO_ESO_ROLE_ARN ya cargada del JSON
+# Mexico — $MEXICO_ESO_ROLE_ARN already loaded from JSON
 helm install external-secrets external-secrets/external-secrets \
   --kube-context mexico \
   -n external-secrets --create-namespace \
@@ -257,16 +256,16 @@ helm install external-secrets external-secrets/external-secrets \
   --set "certController.tolerations[0].effect=NoSchedule"
 ```
 
-Verificar:
+Verify:
 
 ```bash
 kubectl --context spain -n external-secrets get pods
 kubectl --context mexico -n external-secrets get pods
 ```
 
-### 3.3 — ClusterSecretStore (ambas regiones)
+### 3.3 — ClusterSecretStore (both regions)
 
-Después de instalar ESO, hay que crear el `ClusterSecretStore` que referencia el Helm chart en cada región. Este es el recurso que le dice a ESO cómo conectar con AWS Secrets Manager.
+After installing ESO, create the `ClusterSecretStore` that references the Helm chart in each region. This resource tells ESO how to connect to AWS Secrets Manager.
 
 ```bash
 # Spain
@@ -306,19 +305,19 @@ spec:
 EOF
 ```
 
-Verificar:
+Verify:
 
 ```bash
 kubectl --context spain get clustersecretstore aws-secrets-manager
 kubectl --context mexico get clustersecretstore aws-secrets-manager
-# STATUS debe ser "Valid"
+# STATUS should be "Valid"
 ```
 
 ---
 
-## Fase 4 — Poblar secretos en AWS Secrets Manager
+## Phase 4 — Populate Secrets in AWS Secrets Manager
 
-Terraform crea los secrets vacíos. Solo hay que poblar `API_SECRET_KEY` — las credenciales de la base de datos las gestiona RDS automáticamente via `manage_master_user_password = true` y ESO las lee directamente del secret de RDS para componer el `DATABASE_URL`.
+Terraform creates empty secrets. Only `API_SECRET_KEY` needs to be populated — database credentials are managed automatically by RDS via `manage_master_user_password = true` and ESO reads them directly from the RDS secret to compose `DATABASE_URL`.
 
 ```bash
 # Spain
@@ -338,15 +337,15 @@ aws secretsmanager put-secret-value \
   }'
 ```
 
-> **Nota:** El `DATABASE_URL` se compone automáticamente en el ExternalSecret usando el template de ESO: lee `username` y `password` del secret gestionado por RDS, y el endpoint de conexión se inyecta via ArgoCD `helm.parameters`. El output `db_connection_endpoint` devuelve el endpoint del RDS Proxy (si está habilitado) o el de RDS directo (si no). La app conecta al proxy, que mantiene un pool de conexiones persistentes a RDS — esto elimina ~30-50ms de handshake TCP+TLS por request. Si RDS rota el password, tanto el proxy como ESO lo resuelven automáticamente.
+> **Note:** `DATABASE_URL` is automatically composed in the ExternalSecret using the ESO template: it reads `username` and `password` from the RDS-managed secret, and the connection endpoint is injected via ArgoCD `helm.parameters`. The `db_connection_endpoint` output returns the RDS Proxy endpoint (if enabled) or the direct RDS endpoint (if not). The app connects to the proxy, which maintains a pool of persistent connections to RDS — saving ~30-50ms of TCP+TLS handshake per request. If RDS rotates the password, both the proxy and ESO resolve it automatically.
 
 ---
 
-## Fase 5 — ArgoCD (solo Spain)
+## Phase 5 — ArgoCD (Spain only)
 
-Instancia centralizada en el cluster de Spain que gestiona ambas regiones.
+Centralised instance in the Spain cluster managing both regions.
 
-### 5.1 — Instalar ArgoCD
+### 5.1 — Install ArgoCD
 
 ```bash
 helm repo add argo https://argoproj.github.io/argo-helm
@@ -358,56 +357,56 @@ helm install argocd argo/argo-cd \
   -f 3_gitops/argocd/install/values-argocd.yaml
 ```
 
-Verificar que todos los pods arrancan:
+Verify all pods start:
 
 ```bash
 kubectl --context spain -n argocd get pods
 ```
 
-### 5.2 — Obtener password inicial de admin
+### 5.2 — Get initial admin password
 
 ```bash
 kubectl --context spain -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath='{.data.password}' | base64 -d
 ```
 
-### 5.3 — Login con CLI
+### 5.3 — Login with CLI
 
-ArgoCD no tiene Ingress configurado (para evitar exponer el control plane y el coste de un ALB adicional). El acceso es via port-forward:
+ArgoCD has no Ingress configured (to avoid exposing the control plane and the cost of an additional ALB). Access is via port-forward:
 
 ```bash
 kubectl --context spain -n argocd port-forward svc/argocd-server 8443:443 &
 argocd login localhost:8443 --insecure --username admin --password <password>
 ```
 
-> **Produccion:** Para acceso permanente sin port-forward, se recomienda configurar Ingress con WAF (rate limiting + IP allowlist) + SSO via Dex/OIDC (Google Workspace, Okta, Azure AD) y deshabilitar la cuenta admin local.
+> **Production:** For permanent access without port-forward, it is recommended to configure Ingress with WAF (rate limiting + IP allowlist) + SSO via Dex/OIDC (Google Workspace, Okta, Azure AD) and disable the local admin account.
 
-### 5.4 — Registrar cluster de Mexico como destino
+### 5.4 — Register Mexico cluster as a destination
 
-ArgoCD necesita credenciales para desplegar en el cluster de Mexico.
+ArgoCD requires credentials to deploy to the Mexico cluster.
 
 ```bash
-# Asegurarse de que el context "mexico" existe en kubeconfig
+# Ensure the "mexico" context exists in kubeconfig
 argocd cluster add mexico --name "$MEXICO_CLUSTER"
 ```
 
-Verificar:
+Verify:
 
 ```bash
 argocd cluster list
-# Debe mostrar:
+# Should show:
 #   in-cluster (Spain, default)
-#   <mexico-cluster-name> (Mexico, agregado)
+#   <mexico-cluster-name> (Mexico, added)
 ```
 
-### 5.5 — Desplegar las aplicaciones
+### 5.5 — Deploy the applications
 
-Los manifiestos ArgoCD contienen placeholders que se sustituyen al vuelo con sed. Los ficheros originales no se modifican.
+ArgoCD manifests contain placeholders that are substituted on the fly with sed. The original files are not modified.
 
 ```bash
-# Opcion A: ApplicationSet (recomendado, gestiona ambas regiones)
-# Spain usa https://kubernetes.default.svc (in-cluster, ya hardcodeado en el template)
-# Solo se sustituyen placeholders de valores de infraestructura
+# Option A: ApplicationSet (recommended, manages both regions)
+# Spain uses https://kubernetes.default.svc (in-cluster, already hardcoded in the template)
+# Only infrastructure value placeholders are substituted
 sed "s|ECR_REGISTRY_SPAIN|$SPAIN_ECR_REGISTRY|g; \
      s|ACM_ARN_SPAIN|$SPAIN_CERT_ARN|g; \
      s|RDS_SECRET_ARN_SPAIN|$SPAIN_RDS_SECRET_ARN|g; \
@@ -421,8 +420,8 @@ sed "s|ECR_REGISTRY_SPAIN|$SPAIN_ECR_REGISTRY|g; \
      s|APP_SECRET_ID_MEXICO|$MEXICO_APP_SECRET_ID|g" \
   3_gitops/argocd/applicationset.yaml | kubectl --context spain apply -f -
 
-# Opcion B: Applications individuales (solo si no se usa ApplicationSet)
-# Spain: no necesita sustitucion de cluster URL (ya es in-cluster)
+# Option B: Individual Applications (only if not using ApplicationSet)
+# Spain: no cluster URL substitution needed (already in-cluster)
 sed "s|ECR_REGISTRY_SPAIN|$SPAIN_ECR_REGISTRY|g; \
      s|ACM_ARN_SPAIN|$SPAIN_CERT_ARN|g; \
      s|RDS_SECRET_ARN_SPAIN|$SPAIN_RDS_SECRET_ARN|g; \
@@ -430,7 +429,7 @@ sed "s|ECR_REGISTRY_SPAIN|$SPAIN_ECR_REGISTRY|g; \
      s|APP_SECRET_ID_SPAIN|$SPAIN_APP_SECRET_ID|g" \
   3_gitops/argocd/application-spain.yaml | kubectl --context spain apply -f -
 
-# Mexico: cluster remoto, necesita URL externa
+# Mexico: remote cluster, requires external URL
 sed "s|CLUSTER_URL_MEXICO|$MEXICO_CLUSTER_URL|g; \
      s|ECR_REGISTRY_MEXICO|$MEXICO_ECR_REGISTRY|g; \
      s|ACM_ARN_MEXICO|$MEXICO_CERT_ARN|g; \
@@ -440,7 +439,7 @@ sed "s|CLUSTER_URL_MEXICO|$MEXICO_CLUSTER_URL|g; \
   3_gitops/argocd/application-mexico.yaml | kubectl --context spain apply -f -
 ```
 
-Verificar en ArgoCD:
+Verify in ArgoCD:
 
 ```bash
 argocd app list
@@ -450,12 +449,12 @@ argocd app get payment-latency-api-mexico
 
 ---
 
-## Fase 6 — Verificacion
+## Phase 6 — Verification
 
 ### Health checks
 
 ```bash
-# Spain (via port-forward si no hay DNS)
+# Spain (via port-forward if no DNS)
 kubectl --context spain -n payment-api port-forward svc/payment-latency-api-spain 8080:80 &
 curl http://localhost:8080/health
 curl http://localhost:8080/info
@@ -466,23 +465,39 @@ curl http://localhost:8081/health
 curl http://localhost:8081/info
 ```
 
-### Secrets sincronizados
+### Secrets synced
 
 ```bash
 kubectl --context spain -n payment-api get externalsecret
 kubectl --context mexico -n payment-api get externalsecret
-# STATUS debe ser "SecretSynced"
+# STATUS should be "SecretSynced"
 ```
 
-### ALB creado
+### ALB created
 
 ```bash
 kubectl --context spain -n payment-api get ingress
 kubectl --context mexico -n payment-api get ingress
-# ADDRESS debe mostrar el DNS del ALB
+# ADDRESS should show the ALB DNS name
 ```
 
-### Metricas Prometheus
+### Payment simulate endpoint
+
+```bash
+# Get API_SECRET_KEY for Spain
+API_KEY=$(aws secretsmanager get-secret-value \
+  --secret-id "$SPAIN_APP_SECRET_ID" \
+  --region "$SPAIN_REGION" \
+  --query SecretString --output text | python3 -c "import sys,json; print(json.load(sys.stdin)['API_SECRET_KEY'])")
+
+# Spain
+curl -s -H "X-API-Key: $API_KEY" https://api-es.aws.lacloaca.com/api/payment/simulate | python3 -m json.tool
+
+# Mexico (repeat with MEXICO_APP_SECRET_ID and MEXICO_REGION)
+curl -s -H "X-API-Key: $API_KEY" https://api-mx.aws.lacloaca.com/api/payment/simulate | python3 -m json.tool
+```
+
+### Prometheus metrics
 
 ```bash
 curl http://localhost:8080/metrics | grep payment_processing
@@ -490,19 +505,19 @@ curl http://localhost:8080/metrics | grep payment_processing
 
 ---
 
-## Resumen de orden de ejecucion
+## Execution order summary
 
-| Fase | Que | Donde | Dependencia |
-|------|-----|-------|-------------|
-| 1 | Terraform apply | Spain + Mexico | Prerequisitos |
-| 2 | Configurar kubeconfig | Local | Fase 1 |
-| 3.1 | ALB Controller | Spain + Mexico | Fase 2 |
-| 3.2 | External Secrets Operator | Spain + Mexico | Fase 2 |
-| 3.3 | ClusterSecretStore | Spain + Mexico | Fase 3.2 |
-| 4 | Poblar secretos en Secrets Manager | AWS | Fase 1 |
-| 5.1 | Instalar ArgoCD | Spain | Fase 3.1 |
-| 5.4 | Registrar cluster Mexico | Spain (ArgoCD) | Fase 5.1 + Fase 2 |
-| 5.5 | Aplicar ApplicationSet | Spain (ArgoCD) | Fase 3.3 + Fase 4 + Fase 5.4 |
-| 6 | Verificacion | Ambos clusters | Fase 5.5 |
+| Phase | What | Where | Dependency |
+|-------|------|-------|------------|
+| 1 | Terraform apply | Spain + Mexico | Prerequisites |
+| 2 | Configure kubeconfig | Local | Phase 1 |
+| 3.1 | ALB Controller | Spain + Mexico | Phase 2 |
+| 3.2 | External Secrets Operator | Spain + Mexico | Phase 2 |
+| 3.3 | ClusterSecretStore | Spain + Mexico | Phase 3.2 |
+| 4 | Populate secrets in Secrets Manager | AWS | Phase 1 |
+| 5.1 | Install ArgoCD | Spain | Phase 3.1 |
+| 5.4 | Register Mexico cluster | Spain (ArgoCD) | Phase 5.1 + Phase 2 |
+| 5.5 | Apply ApplicationSet | Spain (ArgoCD) | Phase 3.3 + Phase 4 + Phase 5.4 |
+| 6 | Verification | Both clusters | Phase 5.5 |
 
-> **Importante:** Todos los addons de la Fase 3 corren en nodos `system` con toleration al taint `dedicated=system:NoSchedule`. Esto es coherente con la separacion de node groups system/application definida en la infraestructura.
+> **Important:** All Phase 3 addons run on `system` nodes with toleration for the `dedicated=system:NoSchedule` taint. This is consistent with the system/application node group separation defined in the infrastructure.

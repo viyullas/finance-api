@@ -1,116 +1,116 @@
-# ADR-02: Estrategia para Latencia < 100ms
+# ADR-02: Latency < 100ms Strategy
 
-## Estado
-Aceptado
+## Status
+Accepted
 
-## Contexto
-El requisito es que las transacciones de pago se procesen con latencia < 100ms de extremo a extremo. Esto incluye el tiempo desde que la request llega al load balancer hasta que se devuelve la response.
+## Context
+The requirement is for payment transactions to be processed with end-to-end latency < 100ms. This covers the time from when the request reaches the load balancer until the response is returned.
 
-## Análisis de la Cadena de Latencia
+## Latency Chain Analysis
 
 ```
-Cliente → ALB → EKS Pod → RDS → EKS Pod → ALB → Cliente
+Client → ALB → EKS Pod → RDS → EKS Pod → ALB → Client
   ~1ms    ~2ms   ~1ms     ~5-15ms  ~1ms    ~2ms   ~1ms
                                                     ≈ 23-28ms (intra-region)
 ```
 
-### Factores de Latencia Identificados
+### Identified Latency Factors
 
-| Componente | Latencia Estimada | Controlable |
+| Component | Estimated Latency | Controllable |
 |-----------|------------------|-------------|
-| DNS + TLS handshake | 10-50ms (primera request) | Parcialmente |
+| DNS + TLS handshake | 10-50ms (first request) | Partially |
 | ALB routing | 1-3ms | No |
-| Pod processing | 1-5ms | Sí |
-| DB query | 5-15ms | Sí |
-| Network hops | 1-3ms | Parcialmente |
+| Pod processing | 1-5ms | Yes |
+| DB query | 5-15ms | Yes |
+| Network hops | 1-3ms | Partially |
 
-## Decisiones
+## Decisions
 
-### 1. Co-localización EKS + RDS (Misma Región)
-**Decisión:** EKS y RDS en la misma región AWS.
+### 1. EKS + RDS Co-location (Same Region)
+**Decision:** EKS and RDS in the same AWS region.
 
-**Implementación:**
-- RDS Multi-AZ con primary en la primera AZ
-- Latencia red intra-AZ: < 1ms vs inter-AZ: 1-3ms
+**Implementation:**
+- RDS Multi-AZ with primary in the first AZ
+- Intra-AZ network latency: < 1ms vs inter-AZ: 1-3ms
 
-**No implementado:** pod affinity para preferir la AZ del RDS primary. Se descartó porque con RDS Multi-AZ el primary puede cambiar de AZ tras un failover, invalidando la afinidad. La diferencia inter-AZ (1-3ms) no justifica la complejidad de mantener la afinidad sincronizada con el primary actual.
+**Not implemented:** pod affinity to prefer the RDS primary AZ. Discarded because with RDS Multi-AZ the primary can change AZ after a failover, invalidating the affinity. The inter-AZ difference (1-3ms) does not justify the complexity of keeping the affinity in sync with the current primary.
 
-### 2. Connection Pooling con RDS Proxy
-**Decisión:** No usar PgBouncer sidecar; usar RDS Proxy gestionado.
+### 2. Connection Pooling with RDS Proxy
+**Decision:** Do not use a PgBouncer sidecar; use the managed RDS Proxy.
 
-**Justificación:**
-- RDS Proxy mantiene pool de conexiones persistentes a RDS
-- Elimina overhead de establecer conexión TCP+TLS por request (~30-50ms ahorrados)
-- Gestionado por AWS, sin pods adicionales que mantener
-- Failover transparente en caso de cambio de AZ del primary RDS
+**Rationale:**
+- RDS Proxy maintains a pool of persistent connections to RDS
+- Eliminates TCP+TLS connection establishment overhead per request (~30-50ms saved)
+- Managed by AWS, no additional pods to maintain
+- Transparent failover when the RDS primary changes AZ
 
-**Implementado:** RDS Proxy habilitado en ambos entornos (`rds_proxy_enabled = true`). El output `db_connection_endpoint` devuelve el endpoint del proxy, que es el que recibe la app via `DATABASE_URL`. Las conexiones al backend RDS se reutilizan de forma transparente sin cambios en la aplicación.
+**Implemented:** RDS Proxy enabled in both environments (`rds_proxy_enabled = true`). The `db_connection_endpoint` output returns the proxy endpoint, which the app receives via `DATABASE_URL`. Backend RDS connections are transparently reused with no application changes.
 
-### 3. AWS ALB (No NLB) como Ingress
-**Decisión:** Application Load Balancer vía AWS Load Balancer Controller.
+### 3. AWS ALB (Not NLB) as Ingress
+**Decision:** Application Load Balancer via AWS Load Balancer Controller.
 
-**Justificación:**
-- ALB opera en L7, más eficiente para HTTP/HTTPS que NLB (L4)
-- Terminación TLS en el ALB reduce carga en los pods
-- Target type IP (directo a pod, sin kube-proxy hop adicional)
-- Health checks HTTP nativos
+**Rationale:**
+- ALB operates at L7, more efficient for HTTP/HTTPS than NLB (L4)
+- TLS termination at the ALB reduces pod load
+- IP target type (direct to pod, no additional kube-proxy hop)
+- Native HTTP health checks
 
-### 4. Nodos Dedicados para la Aplicación
-**Decisión:** Los pods de payment-latency-api corren exclusivamente en nodos del node group `application`, separados de los componentes de sistema.
+### 4. Dedicated Nodes for the Application
+**Decision:** payment-latency-api pods run exclusively on `application` node group nodes, separate from system components.
 
-**Implementación:**
-- `nodeSelector: { role: application }` en el Deployment
-- Nodos `application` sin taints (default scheduling para pods con el nodeSelector)
-- Nodos `system` con taint `dedicated=system:NoSchedule` que excluye workloads de negocio
+**Implementation:**
+- `nodeSelector: { role: application }` in the Deployment
+- `application` nodes without taints (default scheduling for pods with the nodeSelector)
+- `system` nodes with taint `dedicated=system:NoSchedule` excluding business workloads
 
-**Justificación:**
-- Evita contención de CPU/memoria entre la app y componentes críticos (CoreDNS, ALB Controller)
-- Los nodos de aplicación escalan independientemente según carga de tráfico
-- Elimina el riesgo de que un pod de sistema compita por recursos durante picos de transacciones
+**Rationale:**
+- Avoids CPU/memory contention between the app and critical components (CoreDNS, ALB Controller)
+- Application nodes scale independently based on traffic load
+- Eliminates the risk of a system pod competing for resources during transaction spikes
 
-### 5. HPA para Escalar bajo Carga
-**Decisión:** Horizontal Pod Autoscaler basado en CPU y memoria.
+### 5. HPA to Scale Under Load
+**Decision:** Horizontal Pod Autoscaler based on CPU and memory.
 
-**Implementación:**
-- Target CPU: 70%
-- Target Memory: 80%
-- Min replicas: 2-3 (según región)
-- Max replicas: 10-15 (según región)
+**Implementation:**
+- CPU target: 70%
+- Memory target: 80%
+- Min replicas: 2-3 (per region)
+- Max replicas: 10-15 (per region)
 
-**Justificación:**
-- Escalar horizontalmente antes de que los pods se saturen
-- Mantener headroom de CPU para absorber picos sin degradar latencia
-- CPU al 70% es el umbral donde la latencia empieza a degradarse en Go HTTP servers
+**Rationale:**
+- Scale horizontally before pods become saturated
+- Maintain CPU headroom to absorb spikes without degrading latency
+- 70% CPU is the threshold where latency starts degrading on Go HTTP servers
 
-### 6. Probes Optimizados
-**Decisión:** Readiness probe agresiva, liveness probe conservadora.
+### 6. Optimised Probes
+**Decision:** Aggressive readiness probe, conservative liveness probe.
 
-**Implementación:**
+**Implementation:**
 - Readiness: `/health`, period 5s, failure threshold 3
 - Liveness: `/health`, period 10s, failure threshold 3, initial delay 5s
 
-**Justificación:**
-- Readiness rápida saca pods no-ready del Service rápidamente (evita requests a pods lentos)
-- Liveness conservadora evita reinicios innecesarios durante picos de carga
+**Rationale:**
+- Fast readiness removes not-ready pods from the Service quickly (avoids requests to slow pods)
+- Conservative liveness avoids unnecessary restarts during load spikes
 
-### 7. Pod Anti-Affinity por Zona
-**Decisión:** Distribuir pods entre AZs con preferencia (no requisito).
+### 7. Pod Anti-Affinity by Zone
+**Decision:** Distribute pods across AZs with preference (not requirement).
 
-**Implementación:**
-- `preferredDuringSchedulingIgnoredDuringExecution` con weight 100 por `topology.kubernetes.io/zone`
+**Implementation:**
+- `preferredDuringSchedulingIgnoredDuringExecution` with weight 100 by `topology.kubernetes.io/zone`
 
-**Justificación:**
-- Si una AZ falla, hay pods en otras AZs para servir tráfico
-- "Preferred" (no "required") evita que pods queden pending si una AZ está llena
+**Rationale:**
+- If an AZ fails, pods in other AZs continue serving traffic
+- "Preferred" (not "required") prevents pods from becoming pending if an AZ is full
 
-## Métricas de Monitorización
+## Monitoring Metrics
 
-La aplicación expone métricas Prometheus específicas:
-- `http_request_duration_seconds` — latencia end-to-end por endpoint
-- `payment_processing_duration_seconds` — latencia del procesamiento de pago
-- `http_requests_total` — volumen de requests para correlación
+The application exposes specific Prometheus metrics:
+- `http_request_duration_seconds` — end-to-end latency per endpoint
+- `payment_processing_duration_seconds` — payment processing latency
+- `http_requests_total` — request volume for correlation
 
-### Alertas Recomendadas
+### Recommended Alerts
 ```
 # P50 > 50ms
 histogram_quantile(0.5, rate(payment_processing_duration_seconds_bucket[5m])) > 0.05
@@ -119,8 +119,8 @@ histogram_quantile(0.5, rate(payment_processing_duration_seconds_bucket[5m])) > 
 histogram_quantile(0.99, rate(payment_processing_duration_seconds_bucket[5m])) > 0.1
 ```
 
-## Consecuencias
-- RDS Proxy añade un componente adicional (~$15/mes en db.t4g.micro) y ~1ms de latencia en la cadena, pero ahorra ~30-50ms de handshake por request — balance neto positivo
-- No se implementa afinidad por AZ al RDS primary: la latencia inter-AZ (1-3ms) es aceptable y evita complejidad operativa ante failovers
-- El threshold de 70% CPU en HPA puede causar sobre-provisioning en periodos de baja carga (aceptable por el requisito de latencia)
-- Pod anti-affinity distribuye pods entre AZs para HA, pero puede colocar pods en una AZ diferente al RDS primary (+1-3ms); se acepta este trade-off a favor de disponibilidad
+## Consequences
+- RDS Proxy adds an additional component (~$15/month on db.t4g.micro) and ~1ms to the chain, but saves ~30-50ms of handshake per request — net positive balance
+- No AZ affinity to the RDS primary is implemented: inter-AZ latency (1-3ms) is acceptable and avoids operational complexity during failovers
+- The 70% CPU threshold for HPA may cause over-provisioning during low-traffic periods (acceptable given the latency requirement)
+- Pod anti-affinity distributes pods across AZs for HA, but may place pods in a different AZ from the RDS primary (+1-3ms); this trade-off is accepted in favour of availability

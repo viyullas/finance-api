@@ -1,153 +1,153 @@
-# ADR-01: Decisiones Globales de Arquitectura
+# ADR-01: Global Architecture Decisions
 
-## Estado
-Aceptado
+## Status
+Accepted
 
-## Contexto
-Pluxee/Cobee necesita una plataforma de pagos multi-regional con operaciones en España y México. La arquitectura debe cumplir con GDPR (UE) y Ley Federal de Protección de Datos (MX), garantizando residencia de datos por región y latencia < 100ms en transacciones.
+## Context
+Pluxee/Cobee needs a multi-regional payments platform with operations in Spain and Mexico. The architecture must comply with GDPR (EU) and the Federal Law on Personal Data Protection (MX), guaranteeing data residency per region and latency < 100ms per transaction.
 
-## Decisiones
+## Decisions
 
-### 1. Multi-Región Independiente (No Multi-Cluster Federation)
-**Decisión:** Cada región opera un cluster EKS independiente con su propia base de datos RDS.
+### 1. Independent Multi-Region (No Multi-Cluster Federation)
+**Decision:** Each region runs an independent EKS cluster with its own RDS database.
 
-**Justificación:**
-- **Residencia de datos**: GDPR exige que los datos de ciudadanos EU no salgan de la UE. Con clusters independientes, los datos de España permanecen en eu-south-2 y los de México en us-east-1
-- **Aislamiento de fallos**: Un problema en una región no afecta a la otra
-- **Simplicidad operativa**: Federation añade complejidad sin beneficio real cuando no hay necesidad de compartir datos entre regiones
+**Rationale:**
+- **Data residency**: GDPR requires that EU citizens' data never leave the EU. With independent clusters, Spain's data stays in eu-south-2 and Mexico's in us-east-1
+- **Failure isolation**: A problem in one region does not affect the other
+- **Operational simplicity**: Federation adds complexity with no real benefit when there is no need to share data between regions
 
-**Alternativas descartadas:**
-- Multi-cluster federation (Kubernetes): complejidad excesiva, riesgo de fuga de datos entre regiones
-- Región única con sharding lógico: no cumple GDPR por residencia física de datos
+**Discarded alternatives:**
+- Multi-cluster federation (Kubernetes): excessive complexity, risk of data leakage between regions
+- Single region with logical sharding: does not comply with GDPR due to physical data residency requirements
 
-### 2. EKS Managed con Node Groups Separados (System + Application)
-**Decisión:** Usar EKS managed con dos node groups diferenciados: `system` y `application`.
+### 2. Managed EKS with Separate Node Groups (System + Application)
+**Decision:** Use managed EKS with two distinct node groups: `system` and `application`.
 
-**Justificación:**
-- Control plane gestionado por AWS reduce carga operativa
-- Soporte nativo para IRSA (IAM Roles for Service Accounts)
-- Fargate descartado como compute principal por limitaciones con DaemonSets (monitoring agents)
+**Rationale:**
+- AWS-managed control plane reduces operational burden
+- Native IRSA support (IAM Roles for Service Accounts)
+- Fargate discarded as primary compute due to limitations with DaemonSets (monitoring agents)
 
-**Separación de node groups:**
-- **System** (`t3.medium`, tamaño fijo ~2 nodos): ejecuta componentes de cluster (CoreDNS, ALB Controller, ESO, EBS CSI). Taint `dedicated=system:NoSchedule` impide que pods de aplicación se programen aquí
-- **Application** (`t3.medium`, autoscaling): ejecuta workloads de negocio (payment-latency-api). Sin taints, con label `role=application` y nodeSelector en los pods
+**Node group separation:**
+- **System** (`t3.medium`, fixed size ~2 nodes): runs cluster components (CoreDNS, ALB Controller, ESO, EBS CSI). Taint `dedicated=system:NoSchedule` prevents application pods from being scheduled here
+- **Application** (`t3.medium`, autoscaling): runs business workloads (payment-latency-api). No taints, with `role=application` label and nodeSelector on pods
 
-**Beneficios del aislamiento:**
-- Un spike de tráfico en la aplicación no compite por recursos con componentes críticos del cluster
-- Los nodos de sistema tienen tamaño fijo y predecible, los de aplicación escalan según demanda
-- Permite ajustar instance types independientemente (compute-optimized para apps, general-purpose para sistema)
+**Isolation benefits:**
+- A traffic spike in the application does not compete for resources with critical cluster components
+- System nodes have a fixed and predictable size; application nodes scale with demand
+- Allows instance types to be tuned independently (compute-optimized for apps, general-purpose for system)
 
-### 3. PostgreSQL en RDS (No Aurora)
-**Decisión:** RDS PostgreSQL Multi-AZ en lugar de Aurora.
+### 3. PostgreSQL on RDS (Not Aurora)
+**Decision:** RDS PostgreSQL Multi-AZ instead of Aurora.
 
-**Justificación:**
-- Menor coste para el volumen de transacciones esperado
-- Multi-AZ cubre la necesidad de alta disponibilidad
-- Failover automático en < 60 segundos
-- Aurora sería justificable si el volumen de escrituras crece significativamente
+**Rationale:**
+- Lower cost for the expected transaction volume
+- Multi-AZ covers high-availability requirements
+- Automatic failover in < 60 seconds
+- Aurora would be justified if write volume grows significantly
 
-### 4. GitOps con ArgoCD
-**Decisión:** ArgoCD como motor de despliegue GitOps.
+### 4. GitOps with ArgoCD
+**Decision:** ArgoCD as the GitOps deployment engine.
 
-**Justificación:**
-- Reconciliación continua: detecta y corrige drift automáticamente
-- Auditabilidad: cada cambio tiene un commit asociado en Git
-- Multi-cluster nativo: soporta desplegar a múltiples clusters desde una instancia
-- ApplicationSet para gestionar ambas regiones con un solo manifiesto
+**Rationale:**
+- Continuous reconciliation: automatically detects and corrects drift
+- Auditability: every change has an associated Git commit
+- Native multi-cluster: supports deploying to multiple clusters from a single instance
+- ApplicationSet to manage both regions with a single manifest
 
-### 5. Helm como Herramienta de Templating
-**Decisión:** Helm charts con values por región.
+### 5. Helm as Templating Tool
+**Decision:** Helm charts with per-region values.
 
-**Justificación:**
-- Un solo chart, múltiples configuraciones (values-spain.yaml, values-mexico.yaml)
-- Ecosistema maduro con amplia adopción
-- Integración nativa con ArgoCD
-- Kustomize descartado por menor flexibilidad en parametrización compleja
+**Rationale:**
+- Single chart, multiple configurations (values-spain.yaml, values-mexico.yaml)
+- Mature ecosystem with wide adoption
+- Native ArgoCD integration
+- Kustomize discarded due to lower flexibility for complex parameterisation
 
-### 6. Módulos Terraform Públicos
-**Decisión:** Usar módulos oficiales de la comunidad AWS para VPC, EKS y RDS.
+### 6. Public Terraform Modules
+**Decision:** Use official AWS community modules for VPC, EKS and RDS.
 
-**Justificación:**
-- Ampliamente probados y mantenidos por HashiCorp y la comunidad
-- Cubren best practices de AWS por defecto
-- Reducen código custom y tiempo de desarrollo
-- Fuentes documentadas en cada módulo
+**Rationale:**
+- Widely tested and maintained by HashiCorp and the community
+- Cover AWS best practices by default
+- Reduce custom code and development time
+- Sources documented in each module
 
-### 7. Escalado de Nodos — Karpenter (No implementado)
-**Decisión:** Se ha valorado Karpenter como solución de autoscaling de nodos, pero queda fuera del alcance actual. Los ASGs de los node groups tienen rangos definidos (min/max) pero no hay un controlador activo que los escale automáticamente.
+### 7. Node Scaling — Karpenter (Not Implemented)
+**Decision:** Karpenter has been evaluated as a node autoscaling solution but is out of the current scope. The node group ASGs have defined ranges (min/max) but there is no active controller to autoscale them.
 
-**Por qué Karpenter sobre Cluster Autoscaler nativo:**
-- Cluster Autoscaler opera sobre ASGs predefinidos: solo puede escalar dentro de los instance types y configuraciones que ya existen en el node group. Si necesitas un tipo de instancia diferente, hay que modificar Terraform
-- Karpenter provisiona nodos directamente vía la API de EC2, sin depender de ASGs. Selecciona el instance type óptimo en tiempo real según los recursos que piden los pods pendientes (right-sizing)
-- Karpenter es más rápido en el scheduling (~30s vs ~2min del Cluster Autoscaler) porque no espera ciclos de reconciliación del ASG
-- Consolidación automática: Karpenter detecta nodos infrautilizados, mueve pods y termina nodos sobrantes. Cluster Autoscaler es más conservador en scale-down
-- Karpenter es el reemplazo recomendado por AWS para Cluster Autoscaler en EKS
+**Why Karpenter over native Cluster Autoscaler:**
+- Cluster Autoscaler operates on predefined ASGs: it can only scale within the instance types and configurations that already exist in the node group. Changing the instance type requires modifying Terraform
+- Karpenter provisions nodes directly via the EC2 API, without relying on ASGs. It selects the optimal instance type in real time based on the resources requested by pending pods (right-sizing)
+- Karpenter is faster at scheduling (~30s vs ~2min for Cluster Autoscaler) because it does not wait for ASG reconciliation cycles
+- Automatic consolidation: Karpenter detects underutilised nodes, moves pods and terminates surplus nodes. Cluster Autoscaler is more conservative on scale-down
+- Karpenter is the AWS-recommended replacement for Cluster Autoscaler on EKS
 
-**Cómo se implementaría:**
-- Desplegar Karpenter via Helm en los nodos `system` (con toleration al taint `dedicated=system`)
-- Crear un `NodePool` para workloads de aplicación con constraints: instance families (`m6i`, `m6a`, `c6i`), capacity type `on-demand`, y límite de CPU/memoria total
-- Crear un `EC2NodeClass` con la AMI de EKS, subnets privadas y security groups del cluster
-- El node group `application` de Terraform pasaría a ser el bootstrap mínimo (o se eliminaría), y Karpenter gestionaría el escalado real
-- El node group `system` seguiría gestionado por el ASG con tamaño fijo, ya que sus workloads son predecibles
+**How it would be implemented:**
+- Deploy Karpenter via Helm on `system` nodes (with toleration for the `dedicated=system` taint)
+- Create a `NodePool` for application workloads with constraints: instance families (`m6i`, `m6a`, `c6i`), capacity type `on-demand`, and total CPU/memory limit
+- Create an `EC2NodeClass` with the EKS AMI, private subnets and cluster security groups
+- The `application` node group in Terraform would become a minimal bootstrap (or be removed), with Karpenter managing real scaling
+- The `system` node group would remain ASG-managed at a fixed size, as its workloads are predictable
 
-**Estado actual:** Los node groups tienen tags de autodiscovery (`k8s.io/cluster-autoscaler`) y rangos min/max configurados, lo que permite añadir Karpenter o Cluster Autoscaler en el futuro sin cambios en Terraform.
+**Current state:** Node groups have autodiscovery tags (`k8s.io/cluster-autoscaler`) and min/max ranges configured, allowing Karpenter or Cluster Autoscaler to be added in the future without Terraform changes.
 
-### 8. Credenciales de BD Gestionadas por RDS + Composición con ESO
-**Decisión:** Usar `manage_master_user_password = true` en RDS para que AWS gestione y rote automáticamente el password del master user. El `DATABASE_URL` se compone en el ExternalSecret usando el template de ESO, combinando las credenciales del secret de RDS con el endpoint inyectado via ArgoCD.
+### 8. DB Credentials Managed by RDS + Composition with ESO
+**Decision:** Use `manage_master_user_password = true` in RDS so AWS manages and automatically rotates the master user password. The `DATABASE_URL` is composed in the ExternalSecret using the ESO template, combining RDS credentials with the endpoint injected via ArgoCD.
 
-**Justificación:**
-- Elimina la duplicación del password entre el secret de RDS y un secret manual de la aplicación
-- La rotación automática de credenciales funciona de forma transparente — ESO sincroniza el nuevo password en cada `refreshInterval`
-- Reduce los pasos manuales de despliegue: ya no hay que copiar credenciales de RDS a otro secret
-- El único secret que requiere población manual es `API_SECRET_KEY`
+**Rationale:**
+- Eliminates password duplication between the RDS secret and a manual application secret
+- Automatic credential rotation works transparently — ESO syncs the new password on each `refreshInterval`
+- Reduces manual deployment steps: no need to copy RDS credentials to another secret
+- The only secret requiring manual population is `API_SECRET_KEY`
 
-**Alternativa descartada:**
-- Secret manual con `DATABASE_URL` completo: requiere copiar el password de RDS manualmente, se rompe tras cada rotación, y duplica información sensible en dos secrets diferentes
+**Discarded alternative:**
+- Manual secret with a full `DATABASE_URL`: requires copying the RDS password manually, breaks after each rotation, and duplicates sensitive information across two different secrets
 
 ### 9. NAT Gateway — Single vs One-per-AZ (Configurable)
-**Decisión:** Por defecto se usa un único NAT Gateway (`single_nat_gateway = true`). La variable permite cambiar a uno por AZ para producción con alta disponibilidad.
+**Decision:** A single NAT Gateway is used by default (`single_nat_gateway = true`). The variable allows switching to one-per-AZ for high-availability production environments.
 
-**Coste:**
-- 1 NAT Gateway: ~$1.08/día ($32.40/mes) — precio fijo $0.045/h + transferencia
-- 3 NAT Gateways (uno por AZ): ~$3.24/día ($97.20/mes)
+**Cost:**
+- 1 NAT Gateway: ~$1.08/day ($32.40/month) — fixed price $0.045/h + data transfer
+- 3 NAT Gateways (one per AZ): ~$3.24/day ($97.20/month)
 
-**Tradeoff:**
-- **Single NAT Gateway**: ahorra ~$65/mes por región. Si la AZ donde está el NAT se cae, las subnets privadas de las otras AZs pierden acceso a internet (no afecta tráfico interno ni al endpoint de EKS). Aceptable para desarrollo, testing y cargas de trabajo que toleren minutos de indisponibilidad de salida
-- **One-per-AZ**: cada subnet privada sale por su propio NAT. Elimina la dependencia cross-AZ. Recomendado para producción con SLA estricto
+**Trade-off:**
+- **Single NAT Gateway**: saves ~$65/month per region. If the AZ hosting the NAT goes down, private subnets in other AZs lose internet access (does not affect internal traffic or the EKS endpoint). Acceptable for development, testing and workloads tolerating minutes of outbound unavailability
+- **One-per-AZ**: each private subnet routes through its own NAT. Eliminates cross-AZ dependency. Recommended for production with strict SLA
 
-**Para cambiar a uno por AZ:**
+**To switch to one-per-AZ:**
 ```hcl
 single_nat_gateway = false
 ```
 
-### 10. Acceso al Control Plane de EKS — Endpoint Público con Restricción de IP
-**Decisión:** El API server de EKS tiene acceso público y privado habilitados, con restricción de CIDRs configurable via variable `cluster_endpoint_public_access_cidrs`.
+### 10. EKS Control Plane Access — Public Endpoint with IP Restriction
+**Decision:** The EKS API server has both public and private access enabled, with CIDRs configurable via the `cluster_endpoint_public_access_cidrs` variable.
 
-**Justificación:**
-- El endpoint público es necesario para operar el cluster desde fuera de la VPC (desarrollo, CI/CD, administración)
-- El endpoint privado permite que los nodos y pods se comuniquen con el control plane sin salir de la VPC
-- La restricción de CIDRs limita qué IPs pueden alcanzar el endpoint público (reduce superficie de ataque)
-- La autenticación IAM/RBAC sigue siendo obligatoria — la restricción de IP es una capa adicional
+**Rationale:**
+- The public endpoint is required to operate the cluster from outside the VPC (development, CI/CD, administration)
+- The private endpoint allows nodes and pods to communicate with the control plane without leaving the VPC
+- CIDR restriction limits which IPs can reach the public endpoint (reduces attack surface)
+- IAM/RBAC authentication remains mandatory — IP restriction is an additional layer
 
-**Default:** `0.0.0.0/0` (abierto). Para restringir:
+**Default:** `0.0.0.0/0` (open). To restrict:
 ```hcl
-cluster_endpoint_public_access_cidrs = ["OFICINA_IP/32", "VPN_IP/32"]
+cluster_endpoint_public_access_cidrs = ["OFFICE_IP/32", "VPN_IP/32"]
 ```
 
-**Para producción estricta** (solo acceso vía VPN/bastion):
+**For strict production** (access only via VPN/bastion):
 ```hcl
-cluster_endpoint_public_access = false  # Requiere cambio en el módulo EKS
+cluster_endpoint_public_access = false  # Requires change in the EKS module
 ```
 
-### 11. Infraestructura como Código Segregada por Entorno
-**Decisión:** Un directorio de Terraform por región/entorno con state independiente.
+### 11. Infrastructure as Code Segregated by Environment
+**Decision:** One Terraform directory per region/environment with independent state.
 
-**Justificación:**
-- States separados evitan que un error en una región corrompa la otra
-- Permite aplicar cambios en una región sin afectar la otra
-- Facilita el rollback por región
+**Rationale:**
+- Separate states prevent an error in one region from corrupting the other
+- Changes can be applied to one region without affecting the other
+- Enables per-region rollback
 
-## Consecuencias
-- Duplicación parcial de código Terraform entre environments (mitigado con módulos compartidos)
-- Necesidad de mantener paridad entre regiones manualmente o con CI/CD
-- Mayor coste operativo por tener infraestructura duplicada (aceptable por compliance)
+## Consequences
+- Partial duplication of Terraform code between environments (mitigated with shared modules)
+- Need to maintain parity between regions manually or via CI/CD
+- Higher operational cost from duplicated infrastructure (acceptable for compliance reasons)
