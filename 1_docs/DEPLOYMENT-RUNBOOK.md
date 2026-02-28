@@ -445,12 +445,12 @@ argocd app get payment-latency-api-mexico
 
 ```bash
 # Spain (via port-forward si no hay DNS)
-kubectl --context spain -n payment-api port-forward svc/payment-api-payment-latency-api 8080:80 &
+kubectl --context spain -n payment-api port-forward svc/payment-latency-api-spain 8080:80 &
 curl http://localhost:8080/health
 curl http://localhost:8080/info
 
 # Mexico
-kubectl --context mexico -n payment-api port-forward svc/payment-api-payment-latency-api 8081:80 &
+kubectl --context mexico -n payment-api port-forward svc/payment-latency-api-mexico 8081:80 &
 curl http://localhost:8081/health
 curl http://localhost:8081/info
 ```
