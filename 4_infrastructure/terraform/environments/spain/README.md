@@ -5,7 +5,7 @@ Deploys the complete payment platform infrastructure for Spain. All data stays w
 ## Architecture
 
 ```
-eu-south-2
+spain
 ├── VPC (10.10.0.0/16, 3 AZs)
 │   ├── Public subnets    — ALB, NAT Gateway
 │   ├── Private subnets   — EKS nodes

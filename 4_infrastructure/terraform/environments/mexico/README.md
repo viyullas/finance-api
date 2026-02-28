@@ -5,7 +5,7 @@ Deploys the complete payment platform infrastructure for Mexico. AWS has no regi
 ## Architecture
 
 ```
-us-east-1
+mexico
 ├── VPC (10.20.0.0/16, 3 AZs)
 │   ├── Public subnets    — ALB, NAT Gateway
 │   ├── Private subnets   — EKS nodes
