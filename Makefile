@@ -42,7 +42,7 @@ spec:
       auth:
         jwt:
           serviceAccountRef:
-            name: external-secrets
+            name: external-secrets-sa
             namespace: external-secrets
 endef
 export CSS_YAML
@@ -114,12 +114,16 @@ tf-plan-mexico: tf-init-mexico ## Terraform plan Mexico
 	cd $(TF_MEXICO) && terraform plan
 
 .PHONY: down-tf-spain
-down-tf-spain: ## Terraform destroy Spain
-	cd $(TF_SPAIN) && terraform init && terraform destroy -auto-approve
+down-tf-spain: ## Terraform destroy Spain (retries on VPC dependency race conditions)
+	cd $(TF_SPAIN) && terraform init && \
+		terraform destroy -auto-approve || \
+		(echo "Retrying after 30s (waiting for AWS to release dependencies)..." && sleep 30 && terraform destroy -auto-approve)
 
 .PHONY: down-tf-mexico
-down-tf-mexico: ## Terraform destroy Mexico
-	cd $(TF_MEXICO) && terraform init && terraform destroy -auto-approve
+down-tf-mexico: ## Terraform destroy Mexico (retries on VPC dependency race conditions)
+	cd $(TF_MEXICO) && terraform init && \
+		terraform destroy -auto-approve || \
+		(echo "Retrying after 30s (waiting for AWS to release dependencies)..." && sleep 30 && terraform destroy -auto-approve)
 
 # ═════════════════════════════════════════════════════════════════
 #  KUBECONFIG
@@ -183,6 +187,7 @@ helm-deps-spain: ## Install ALB Controller + ESO on Spain
 	helm upgrade --install external-secrets external-secrets/external-secrets \
 		--namespace external-secrets --create-namespace --kube-context spain \
 		--set serviceAccount.create=true \
+		--set serviceAccount.name=external-secrets-sa \
 		--set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=$(ESO_ROLE) \
 		--wait
 	@echo "$$CSS_YAML" | sed 's/__REGION__/$(SPAIN_REGION)/' | kubectl --context spain apply -f -
@@ -207,6 +212,7 @@ helm-deps-mexico: ## Install ALB Controller + ESO on Mexico
 	helm upgrade --install external-secrets external-secrets/external-secrets \
 		--namespace external-secrets --create-namespace --kube-context mexico \
 		--set serviceAccount.create=true \
+		--set serviceAccount.name=external-secrets-sa \
 		--set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=$(ESO_ROLE) \
 		--wait
 	@echo "$$CSS_YAML" | sed 's/__REGION__/$(MEXICO_REGION)/' | kubectl --context mexico apply -f -
@@ -242,23 +248,23 @@ secrets-mexico: ## Seed API_SECRET_KEY for Mexico
 # ═════════════════════════════════════════════════════════════════
 
 .PHONY: argocd
-argocd: argocd-spain argocd-mexico ## Install ArgoCD on both clusters
-
-.PHONY: argocd-spain
-argocd-spain: ## Install ArgoCD on Spain
+argocd: ## Install ArgoCD on Spain and register Mexico as remote cluster
 	helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true
 	helm upgrade --install argocd argo/argo-cd \
 		--namespace argocd --create-namespace --kube-context spain \
 		--set server.service.type=ClusterIP \
 		--wait
-
-.PHONY: argocd-mexico
-argocd-mexico: ## Install ArgoCD on Mexico
-	helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true
-	helm upgrade --install argocd argo/argo-cd \
-		--namespace argocd --create-namespace --kube-context mexico \
-		--set server.service.type=ClusterIP \
-		--wait
+	@echo "--- Registering Mexico cluster in ArgoCD ---"
+	kubectl --context spain -n argocd get secret argocd-initial-admin-secret \
+		-o jsonpath='{.data.password}' | base64 -d > /tmp/.argocd-pass
+	kubectl --context spain -n argocd port-forward svc/argocd-server 8443:443 &
+	@sleep 3
+	argocd login localhost:8443 --insecure --username admin \
+		--password "$$(cat /tmp/.argocd-pass)"
+	argocd cluster add mexico --name pluxee-mexico-eks --yes
+	@kill %1 2>/dev/null || true
+	@rm -f /tmp/.argocd-pass
+	$(call ok,ArgoCD installed and Mexico cluster registered)
 
 # ═════════════════════════════════════════════════════════════════
 #  APPLICATIONS (ArgoCD)
@@ -284,45 +290,95 @@ apps-spain: ## Apply ArgoCD Application for Spain
 	$(call ok,Spain ArgoCD Application deployed)
 
 .PHONY: apps-mexico
-apps-mexico: ## Apply ArgoCD Application for Mexico
+apps-mexico: ## Apply ArgoCD Application for Mexico (via Spain ArgoCD)
 	$(eval ECR_REG    := $(call mexico_tf,ecr_registry))
 	$(eval ACM_ARN    := $(call mexico_tf,acm_certificate_arn))
 	$(eval RDS_SECRET := $(call mexico_tf,rds_master_secret_arn))
 	$(eval RDS_EP     := $(call mexico_tf,db_connection_endpoint))
 	$(eval APP_SECRET := $(call mexico_tf,app_secret_id))
+	$(eval MEX_URL    := $(call mexico_tf,eks_cluster_endpoint))
 	sed \
 		-e 's|ECR_REGISTRY_MEXICO|$(ECR_REG)|' \
 		-e 's|ACM_ARN_MEXICO|$(ACM_ARN)|' \
 		-e 's|RDS_SECRET_ARN_MEXICO|$(RDS_SECRET)|' \
 		-e 's|RDS_ENDPOINT_MEXICO|$(RDS_EP)|' \
 		-e 's|APP_SECRET_ID_MEXICO|$(APP_SECRET)|' \
-		-e 's|CLUSTER_URL_MEXICO|https://kubernetes.default.svc|' \
-		$(ARGOCD_DIR)/application-mexico.yaml | kubectl --context mexico apply -f -
+		-e 's|CLUSTER_URL_MEXICO|$(MEX_URL)|' \
+		$(ARGOCD_DIR)/application-mexico.yaml | kubectl --context spain apply -f -
 	$(call ok,Mexico ArgoCD Application deployed)
 
 # ═════════════════════════════════════════════════════════════════
-#  TEARDOWN
+#  TEARDOWN (idempotent — safe to re-run after partial failures)
 # ═════════════════════════════════════════════════════════════════
 
+# Check if a kubectl context is reachable (5s timeout)
+define check_cluster
+$(shell kubectl --context $(1) --request-timeout=5s cluster-info &>/dev/null && echo yes || echo no)
+endef
+
 .PHONY: delete-apps
-delete-apps: ## Delete ArgoCD Applications
-	-kubectl --context spain delete application -n argocd payment-latency-api-spain --wait=false 2>/dev/null
-	-kubectl --context mexico delete application -n argocd payment-latency-api-mexico --wait=false 2>/dev/null
-	@echo "Waiting for ArgoCD to clean up resources..."
-	@sleep 15
-	-kubectl --context spain delete namespace $(NAMESPACE) --wait=false 2>/dev/null
-	-kubectl --context mexico delete namespace $(NAMESPACE) --wait=false 2>/dev/null
+delete-apps: ## Delete ArgoCD Applications (both managed from Spain)
+	@if [ "$(call check_cluster,spain)" = "yes" ]; then \
+		echo "Spain cluster reachable, deleting ArgoCD apps..."; \
+		kubectl --context spain delete application -n argocd payment-latency-api-spain --wait=false 2>/dev/null || true; \
+		kubectl --context spain delete application -n argocd payment-latency-api-mexico --wait=false 2>/dev/null || true; \
+		echo "Waiting for ArgoCD to clean up resources..."; \
+		sleep 15; \
+		kubectl --context spain delete namespace $(NAMESPACE) --wait=false 2>/dev/null || true; \
+	else \
+		echo "Spain cluster not reachable, skipping app deletion"; \
+	fi
+	@if [ "$(call check_cluster,mexico)" = "yes" ]; then \
+		kubectl --context mexico delete namespace $(NAMESPACE) --wait=false 2>/dev/null || true; \
+	fi
 
 .PHONY: uninstall-helm
-uninstall-helm: ## Uninstall all Helm releases
-	-helm uninstall argocd -n argocd --kube-context spain 2>/dev/null
-	-helm uninstall argocd -n argocd --kube-context mexico 2>/dev/null
-	-helm uninstall external-secrets -n external-secrets --kube-context spain 2>/dev/null
-	-helm uninstall external-secrets -n external-secrets --kube-context mexico 2>/dev/null
-	-helm uninstall aws-load-balancer-controller -n kube-system --kube-context spain 2>/dev/null
-	-helm uninstall aws-load-balancer-controller -n kube-system --kube-context mexico 2>/dev/null
-	-kubectl --context spain delete namespace argocd external-secrets --wait=false 2>/dev/null
-	-kubectl --context mexico delete namespace argocd external-secrets --wait=false 2>/dev/null
+uninstall-helm: ## Uninstall all Helm releases (ALB Controller last, waits for ALB cleanup)
+	@if [ "$(call check_cluster,spain)" = "yes" ]; then \
+		echo "Spain cluster reachable, uninstalling helm releases..."; \
+		helm uninstall argocd -n argocd --kube-context spain 2>/dev/null || true; \
+		helm uninstall external-secrets -n external-secrets --kube-context spain 2>/dev/null || true; \
+		echo "Deleting any remaining Ingress resources in Spain..."; \
+		kubectl --context spain delete ingress --all-namespaces --all 2>/dev/null || true; \
+		echo "Waiting for ALB Controller to clean up ALBs and security groups..."; \
+		for i in 1 2 3 4 5 6; do \
+			REMAINING=$$(aws elbv2 describe-load-balancers --region $(SPAIN_REGION) \
+				--query "LoadBalancers[?VpcId=='$$(cd $(TF_SPAIN) && terraform output -raw vpc_id 2>/dev/null)'].LoadBalancerArn" \
+				--output text 2>/dev/null); \
+			if [ -z "$$REMAINING" ] || [ "$$REMAINING" = "None" ]; then \
+				echo "  No ALBs remaining in Spain VPC"; \
+				break; \
+			fi; \
+			echo "  ALBs still being deleted, waiting 15s... (attempt $$i/6)"; \
+			sleep 15; \
+		done; \
+		helm uninstall aws-load-balancer-controller -n kube-system --kube-context spain 2>/dev/null || true; \
+		kubectl --context spain delete namespace argocd external-secrets --wait=false 2>/dev/null || true; \
+	else \
+		echo "Spain cluster not reachable, skipping helm uninstall"; \
+	fi
+	@if [ "$(call check_cluster,mexico)" = "yes" ]; then \
+		echo "Mexico cluster reachable, uninstalling helm releases..."; \
+		helm uninstall external-secrets -n external-secrets --kube-context mexico 2>/dev/null || true; \
+		echo "Deleting any remaining Ingress resources in Mexico..."; \
+		kubectl --context mexico delete ingress --all-namespaces --all 2>/dev/null || true; \
+		echo "Waiting for ALB Controller to clean up ALBs and security groups..."; \
+		for i in 1 2 3 4 5 6; do \
+			REMAINING=$$(aws elbv2 describe-load-balancers --region $(MEXICO_REGION) \
+				--query "LoadBalancers[?VpcId=='$$(cd $(TF_MEXICO) && terraform output -raw vpc_id 2>/dev/null)'].LoadBalancerArn" \
+				--output text 2>/dev/null); \
+			if [ -z "$$REMAINING" ] || [ "$$REMAINING" = "None" ]; then \
+				echo "  No ALBs remaining in Mexico VPC"; \
+				break; \
+			fi; \
+			echo "  ALBs still being deleted, waiting 15s... (attempt $$i/6)"; \
+			sleep 15; \
+		done; \
+		helm uninstall aws-load-balancer-controller -n kube-system --kube-context mexico 2>/dev/null || true; \
+		kubectl --context mexico delete namespace external-secrets --wait=false 2>/dev/null || true; \
+	else \
+		echo "Mexico cluster not reachable, skipping helm uninstall"; \
+	fi
 
 # ═════════════════════════════════════════════════════════════════
 #  STATUS
@@ -359,7 +415,7 @@ help: ## Show available targets
 	@printf '  \033[1mKubernetes:\033[0m\n'
 	@printf '  \033[36m%-25s\033[0m %s\n' "kubeconfig" "Update kubeconfig (both)"
 	@printf '  \033[36m%-25s\033[0m %s\n' "helm-deps" "Install ALB + ESO (both)"
-	@printf '  \033[36m%-25s\033[0m %s\n' "argocd" "Install ArgoCD (both)"
+	@printf '  \033[36m%-25s\033[0m %s\n' "argocd" "Install ArgoCD (Spain) + register Mexico"
 	@printf '  \033[36m%-25s\033[0m %s\n' "apps" "Deploy ArgoCD Applications"
 	@echo ""
 	@printf '  \033[1mOther:\033[0m\n'

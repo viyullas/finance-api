@@ -26,13 +26,14 @@ Cliente → ALB → EKS Pod → RDS → EKS Pod → ALB → Cliente
 
 ## Decisiones
 
-### 1. Co-localización EKS + RDS (Misma Región y AZ Preferente)
-**Decisión:** EKS y RDS en la misma región AWS, con preferencia de AZ.
+### 1. Co-localización EKS + RDS (Misma Región)
+**Decisión:** EKS y RDS en la misma región AWS.
 
 **Implementación:**
 - RDS Multi-AZ con primary en la primera AZ
-- Pod affinity para preferir la AZ del RDS primary
 - Latencia red intra-AZ: < 1ms vs inter-AZ: 1-3ms
+
+**No implementado:** pod affinity para preferir la AZ del RDS primary. Se descartó porque con RDS Multi-AZ el primary puede cambiar de AZ tras un failover, invalidando la afinidad. La diferencia inter-AZ (1-3ms) no justifica la complejidad de mantener la afinidad sincronizada con el primary actual.
 
 ### 2. Connection Pooling con RDS Proxy
 **Decisión:** No usar PgBouncer sidecar; usar RDS Proxy gestionado.
@@ -43,7 +44,7 @@ Cliente → ALB → EKS Pod → RDS → EKS Pod → ALB → Cliente
 - Gestionado por AWS, sin pods adicionales que mantener
 - Failover transparente en caso de cambio de AZ del primary RDS
 
-**Nota:** La aplicación actual no implementa connection pooling interno. Con RDS Proxy, las conexiones desde la app se reutilizan de forma transparente.
+**Implementado:** RDS Proxy habilitado en ambos entornos (`rds_proxy_enabled = true`). El output `db_connection_endpoint` devuelve el endpoint del proxy, que es el que recibe la app via `DATABASE_URL`. Las conexiones al backend RDS se reutilizan de forma transparente sin cambios en la aplicación.
 
 ### 3. AWS ALB (No NLB) como Ingress
 **Decisión:** Application Load Balancer vía AWS Load Balancer Controller.
@@ -119,6 +120,7 @@ histogram_quantile(0.99, rate(payment_processing_duration_seconds_bucket[5m])) >
 ```
 
 ## Consecuencias
-- RDS Proxy añade un componente adicional (y coste) en la cadena
-- La preferencia de AZ no garantiza co-localización (puede haber drift)
+- RDS Proxy añade un componente adicional (~$15/mes en db.t4g.micro) y ~1ms de latencia en la cadena, pero ahorra ~30-50ms de handshake por request — balance neto positivo
+- No se implementa afinidad por AZ al RDS primary: la latencia inter-AZ (1-3ms) es aceptable y evita complejidad operativa ante failovers
 - El threshold de 70% CPU en HPA puede causar sobre-provisioning en periodos de baja carga (aceptable por el requisito de latencia)
+- Pod anti-affinity distribuye pods entre AZs para HA, pero puede colocar pods en una AZ diferente al RDS primary (+1-3ms); se acepta este trade-off a favor de disponibilidad

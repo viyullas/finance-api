@@ -1,33 +1,14 @@
 # Runbook de Despliegue
 
-Procedimiento completo para desplegar la plataforma desde cero. Cada fase depende de que la anterior haya finalizado correctamente.
+Procedimiento manual paso a paso para desplegar la plataforma desde cero. Cada fase depende de que la anterior haya finalizado correctamente.
 
-## Quick Start (Makefile)
-
-Con todas las herramientas instaladas y el bucket S3 creado (ver prerequisitos):
-
-```bash
-make up        # Despliega todo: terraform, kubeconfig, docker, helm, secrets, argocd, apps
-make status    # Muestra estado de ambos clusters
-make down      # Destruye todo sin confirmaciones (entorno de pruebas)
-```
-
-Para ejecutar fases individuales: `make help` muestra todos los targets disponibles.
-
-> El resto de este documento describe el procedimiento manual paso a paso, útil como referencia o para depuración.
+> Para el despliegue automatizado (`make up` / `make down`), prerequisitos y configuracion, ver el [README](../README.md#quick-start) del proyecto.
 
 ---
 
 ## Prerequisitos
 
-- AWS CLI configurado con credenciales para ambas cuentas/regiones
-- `terraform` >= 1.10.0
-- `helm` >= 3.x
-- `kubectl`
-- `make` (GNU Make)
-- `docker`
-- `openssl` (para generar secretos aleatorios)
-- Bucket S3 para el backend de Terraform (ver sección siguiente)
+Este runbook asume que ya tienes configurados todos los prerequisitos listados en el [README](../README.md#prerequisitos) (herramientas, bucket S3, hosted zone).
 
 ### Bucket S3 para Terraform State
 
@@ -55,6 +36,14 @@ Características requeridas:
 - **Versionado:** activado (permite recuperar states anteriores)
 - **Cifrado:** SSE-S3 (por defecto en buckets nuevos)
 - **Acceso público:** bloqueado
+
+> **Para usar tu propio bucket:** cambiar el nombre en `4_infrastructure/terraform/environments/{spain,mexico}/main.tf` → bloque `backend "s3"` (actual: `aabella-terraform-backends`).
+
+### Hosted Zone en Route53
+
+Se necesita una hosted zone en Route53 para la validación DNS de los certificados ACM. Debe existir antes de `terraform apply`.
+
+> **Para usar tu propio dominio:** cambiar las variables `hosted_zone_name` y `app_domain` en `4_infrastructure/terraform/environments/{spain,mexico}/variables.tf` (actual: `aws.lacloaca.com`, `api-es.aws.lacloaca.com`, `api-mx.aws.lacloaca.com`).
 
 ---
 

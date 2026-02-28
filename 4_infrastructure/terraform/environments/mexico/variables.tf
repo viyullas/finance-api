@@ -73,7 +73,7 @@ variable "single_nat_gateway" {
 variable "cluster_endpoint_public_access_cidrs" {
   description = "CIDRs allowed to reach the EKS API server public endpoint"
   type        = list(string)
-  default     = ["0.0.0.0/0"]
+  default     = ["83.33.97.233/32"]
 }
 
 variable "system_node_instance_types" {

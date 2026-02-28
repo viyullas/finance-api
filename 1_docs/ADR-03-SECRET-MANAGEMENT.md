@@ -46,14 +46,18 @@ rds!db-<identifier>          # Creado automáticamente por RDS (manage_master_us
   └── password                # Master password (rotado automáticamente)
 ```
 
-**Gestionado manualmente** (solo API_SECRET_KEY):
+**API_SECRET_KEY** (auto-generado en el deploy):
 ```
-production/spain/payment-latency-api
+production/spain/payment-latency-api-<random_hex>
   └── API_SECRET_KEY
 
-production/mexico/payment-latency-api
+production/mexico/payment-latency-api-<random_hex>
   └── API_SECRET_KEY
 ```
+
+- Terraform crea el secret vacío en Secrets Manager con un sufijo aleatorio (`random_id`, 8 hex chars) para evitar colisiones de nombre en ciclos destroy/recreate
+- `make secrets` genera el valor con `openssl rand -hex 32` y lo almacena via `put-secret-value`
+- El nombre del secret (con sufijo) se obtiene del terraform output `app_secret_id` y se inyecta en el ExternalSecret via ArgoCD `helm.parameters`
 
 El `DATABASE_URL` ya NO se almacena como secret — se compone en el ExternalSecret usando el template de ESO, leyendo `username`/`password` del secret de RDS y combinándolos con el endpoint (inyectado via ArgoCD `helm.parameters`). Esto elimina la duplicación del password y permite que la rotación automática de RDS se propague sin intervención manual.
 
@@ -99,7 +103,7 @@ Definido en el Helm chart (`templates/externalsecret.yaml`):
 
 ### 5. Rotación de Secretos
 - **Password de RDS:** gestionado y rotado automáticamente por AWS (`manage_master_user_password = true`). ESO re-sincroniza según `refreshInterval` (1h) y recompone el `DATABASE_URL` con el nuevo password
-- **API_SECRET_KEY:** rotación manual. Actualizar en Secrets Manager y esperar al siguiente refresh de ESO
+- **API_SECRET_KEY:** generado automáticamente durante el deploy inicial (`make secrets` → `openssl rand -hex 32`). Para rotar: actualizar el valor en Secrets Manager y esperar al siguiente refresh de ESO (1h) o forzar con `kubectl annotate externalsecret --overwrite force-sync=$(date +%s)`
 - Los pods obtienen los nuevos valores en el siguiente restart o con un rolling update
 
 ## Residencia de Datos
