@@ -1,20 +1,20 @@
-# ADR-03: Gestión de Secretos
+# ADR-03: Secret Management
 
-## Estado
-Aceptado
+## Status
+Accepted
 
-## Contexto
-La aplicación requiere dos secretos sensibles:
-- `DATABASE_URL`: connection string a PostgreSQL (contiene credenciales)
-- `API_SECRET_KEY`: clave de autenticación interna de 64 caracteres
+## Context
+The application requires two sensitive secrets:
+- `DATABASE_URL`: PostgreSQL connection string (contains credentials)
+- `API_SECRET_KEY`: 64-character internal authentication key
 
-Estos secretos NUNCA deben estar en Git, ni en values.yaml, ni hardcodeados.
+These secrets must NEVER be stored in Git, in values.yaml, or hardcoded.
 
-## Decisión
+## Decision
 
 ### External Secrets Operator (ESO) + AWS Secrets Manager
 
-**Flujo:**
+**Flow:**
 ```
 AWS Secrets Manager          ESO (in-cluster)         Kubernetes Secret         Pod
 ┌─────────────────┐    sync  ┌───────────────┐  create  ┌────────────────┐   mount  ┌─────┐
@@ -24,29 +24,29 @@ AWS Secrets Manager          ESO (in-cluster)         Kubernetes Secret         
 └─────────────────┘
 ```
 
-### Alternativas Evaluadas
+### Alternatives Evaluated
 
-| Solución | Pros | Contras | Decisión |
-|----------|------|---------|----------|
-| **ESO + Secrets Manager** | Zero secrets en Git, rotación automática, nativo AWS, IRSA | Componente adicional en cluster | **Elegida** |
-| Sealed Secrets | Secrets cifrados en Git | Requiere gestión de claves, no rotación automática | Descartada |
-| Vault (HashiCorp) | Muy potente, multi-cloud | Operacionalmente complejo, sobredimensionado para este caso | Descartada |
-| SOPS + KMS | Secrets cifrados en Git | Requiere descifrar en CI/CD, no nativo K8s | Descartada |
-| Variables de entorno en Deployment | Simple | Secrets en Git (values.yaml) | **Prohibida** |
+| Solution | Pros | Cons | Decision |
+|----------|------|------|----------|
+| **ESO + Secrets Manager** | Zero secrets in Git, automatic rotation, AWS-native, IRSA | Additional component in cluster | **Chosen** |
+| Sealed Secrets | Encrypted secrets in Git | Requires key management, no automatic rotation | Discarded |
+| Vault (HashiCorp) | Very powerful, multi-cloud | Operationally complex, overkill for this use case | Discarded |
+| SOPS + KMS | Encrypted secrets in Git | Requires decryption in CI/CD, not K8s-native | Discarded |
+| Environment variables in Deployment | Simple | Secrets in Git (values.yaml) | **Prohibited** |
 
-## Implementación
+## Implementation
 
-### 1. Almacenamiento en AWS Secrets Manager
-Cada región maneja dos tipos de secrets:
+### 1. Storage in AWS Secrets Manager
+Each region handles two types of secrets:
 
-**Gestionado por RDS** (automático, con rotación):
+**Managed by RDS** (automatic, with rotation):
 ```
-rds!db-<identifier>          # Creado automáticamente por RDS (manage_master_user_password = true)
+rds!db-<identifier>          # Automatically created by RDS (manage_master_user_password = true)
   ├── username                # Master username (dbadmin)
-  └── password                # Master password (rotado automáticamente)
+  └── password                # Master password (automatically rotated)
 ```
 
-**API_SECRET_KEY** (auto-generado en el deploy):
+**API_SECRET_KEY** (auto-generated on deploy):
 ```
 production/spain/payment-latency-api-<random_hex>
   └── API_SECRET_KEY
@@ -55,20 +55,20 @@ production/mexico/payment-latency-api-<random_hex>
   └── API_SECRET_KEY
 ```
 
-- Terraform crea el secret vacío en Secrets Manager con un sufijo aleatorio (`random_id`, 8 hex chars) para evitar colisiones de nombre en ciclos destroy/recreate
-- `make secrets` genera el valor con `openssl rand -hex 32` y lo almacena via `put-secret-value`
-- El nombre del secret (con sufijo) se obtiene del terraform output `app_secret_id` y se inyecta en el ExternalSecret via ArgoCD `helm.parameters`
+- Terraform creates an empty secret in Secrets Manager with a random suffix (`random_id`, 8 hex chars) to avoid name collisions during destroy/recreate cycles
+- `make secrets` generates the value with `openssl rand -hex 32` and stores it via `put-secret-value`
+- The secret name (with suffix) is obtained from the terraform output `app_secret_id` and injected into the ExternalSecret via ArgoCD `helm.parameters`
 
-El `DATABASE_URL` ya NO se almacena como secret — se compone en el ExternalSecret usando el template de ESO, leyendo `username`/`password` del secret de RDS y combinándolos con el endpoint (inyectado via ArgoCD `helm.parameters`). Esto elimina la duplicación del password y permite que la rotación automática de RDS se propague sin intervención manual.
+The `DATABASE_URL` is NO longer stored as a secret -- it is composed within the ExternalSecret using the ESO template, reading `username`/`password` from the RDS-managed secret and combining them with the endpoint (injected via ArgoCD `helm.parameters`). This eliminates password duplication and allows RDS automatic rotation to propagate without manual intervention.
 
-### 2. Autenticación ESO → AWS (IRSA)
-ESO se autentica con AWS Secrets Manager mediante IRSA (IAM Roles for Service Accounts):
-- No hay credenciales AWS estáticas en el cluster
-- El rol IAM tiene permisos mínimos: solo `secretsmanager:GetSecretValue` sobre los ARNs específicos (`production/<region>/*` + `rds!db-*`)
-- Definido en Terraform (`modules/eks/main.tf` → `external_secrets_irsa`)
+### 2. ESO to AWS Authentication (IRSA)
+ESO authenticates with AWS Secrets Manager using IRSA (IAM Roles for Service Accounts):
+- No static AWS credentials in the cluster
+- The IAM role has minimal permissions: only `secretsmanager:GetSecretValue` on specific ARNs (`production/<region>/*` + `rds!db-*`)
+- Defined in Terraform (`modules/eks/main.tf` → `external_secrets_irsa`)
 
 ### 3. ClusterSecretStore
-Un `ClusterSecretStore` por cluster apunta a AWS Secrets Manager de su región:
+One `ClusterSecretStore` per cluster points to the AWS Secrets Manager in its region:
 ```yaml
 apiVersion: external-secrets.io/v1
 kind: ClusterSecretStore
@@ -78,7 +78,7 @@ spec:
   provider:
     aws:
       service: SecretsManager
-      region: eu-south-2  # o us-east-1
+      region: eu-south-2  # or us-east-1
       auth:
         jwt:
           serviceAccountRef:
@@ -86,34 +86,34 @@ spec:
             namespace: external-secrets
 ```
 
-### 4. ExternalSecret con Template (composición de DATABASE_URL)
-Definido en el Helm chart (`templates/externalsecret.yaml`):
-- Referencia el `ClusterSecretStore`
-- Sincroniza los secretos cada 1 hora
-- Usa `target.template` (engine v2) para componer `DATABASE_URL` a partir de:
-  - `username` y `password` del secret gestionado por RDS (vía `remoteRef`)
-  - `host`, `port`, `dbname` y `sslmode` inyectados como Helm values (vía ArgoCD `helm.parameters`)
-- `API_SECRET_KEY` se lee directamente del secret manual
-- Crea un Kubernetes Secret nativo que el Deployment consume via `envFrom`
+### 4. ExternalSecret with Template (DATABASE_URL composition)
+Defined in the Helm chart (`templates/externalsecret.yaml`):
+- References the `ClusterSecretStore`
+- Syncs secrets every 1 hour
+- Uses `target.template` (engine v2) to compose `DATABASE_URL` from:
+  - `username` and `password` from the RDS-managed secret (via `remoteRef`)
+  - `host`, `port`, `dbname`, and `sslmode` injected as Helm values (via ArgoCD `helm.parameters`)
+- `API_SECRET_KEY` is read directly from the manual secret
+- Creates a native Kubernetes Secret that the Deployment consumes via `envFrom`
 
-**Ventajas de este enfoque:**
-- Zero duplicación: el password de RDS existe solo en un lugar (el secret de RDS)
-- Rotación transparente: cuando RDS rota el password, ESO lo sincroniza en el siguiente refresh
-- Menos pasos manuales: no hay que copiar el password de RDS a otro secret
+**Advantages of this approach:**
+- Zero duplication: the RDS password exists in only one place (the RDS secret)
+- Transparent rotation: when RDS rotates the password, ESO syncs it on the next refresh
+- Fewer manual steps: no need to copy the RDS password to another secret
 
-### 5. Rotación de Secretos
-- **Password de RDS:** gestionado y rotado automáticamente por AWS (`manage_master_user_password = true`). ESO re-sincroniza según `refreshInterval` (1h) y recompone el `DATABASE_URL` con el nuevo password
-- **API_SECRET_KEY:** generado automáticamente durante el deploy inicial (`make secrets` → `openssl rand -hex 32`). Para rotar: actualizar el valor en Secrets Manager y esperar al siguiente refresh de ESO (1h) o forzar con `kubectl annotate externalsecret --overwrite force-sync=$(date +%s)`
-- Los pods obtienen los nuevos valores en el siguiente restart o con un rolling update
+### 5. Secret Rotation
+- **RDS Password:** managed and automatically rotated by AWS (`manage_master_user_password = true`). ESO re-syncs according to `refreshInterval` (1h) and recomposes the `DATABASE_URL` with the new password
+- **API_SECRET_KEY:** automatically generated during the initial deploy (`make secrets` → `openssl rand -hex 32`). To rotate: update the value in Secrets Manager and wait for the next ESO refresh (1h) or force it with `kubectl annotate externalsecret --overwrite force-sync=$(date +%s)`
+- Pods pick up the new values on the next restart or with a rolling update
 
-## Residencia de Datos
-- Los secretos de España se almacenan en Secrets Manager de eu-south-2
-- Los secretos de México se almacenan en Secrets Manager de us-east-1
-- Cada ESO solo accede a los secretos de su propia región (policy IAM restrictiva)
-- No hay replicación cross-region de secretos
+## Data Residency
+- Spain secrets are stored in Secrets Manager in eu-south-2
+- Mexico secrets are stored in Secrets Manager in us-east-1
+- Each ESO instance only accesses secrets in its own region (restrictive IAM policy)
+- No cross-region replication of secrets
 
-## Consecuencias
-- ESO es una dependencia adicional que debe estar saludable para que los pods arranquen con secretos actualizados
-- Si ESO falla, los pods existentes siguen funcionando (los Kubernetes Secrets persisten)
-- Nuevos pods no podrán arrancar si el Secret no existe y ESO está caído
-- La rotación de secretos requiere un rolling restart de pods (no es hot-reload)
+## Consequences
+- ESO is an additional dependency that must be healthy for pods to start with up-to-date secrets
+- If ESO fails, existing pods continue to work (Kubernetes Secrets persist)
+- New pods will not be able to start if the Secret does not exist and ESO is down
+- Secret rotation requires a rolling restart of pods (no hot-reload)
