@@ -179,6 +179,7 @@ helm-deps-spain: ## Install ALB Controller + ESO + external-dns on Spain
 	helm repo add eks https://aws.github.io/eks-charts 2>/dev/null || true
 	helm repo add external-secrets https://charts.external-secrets.io 2>/dev/null || true
 	helm repo update
+	kubectl --context spain delete mutatingwebhookconfiguration aws-load-balancer-webhook 2>/dev/null || true
 	helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
 		--namespace kube-system --kube-context spain \
 		--set clusterName=$(SPAIN_CLUSTER) \
@@ -223,6 +224,7 @@ helm-deps-mexico: ## Install ALB Controller + ESO + external-dns on Mexico
 	helm repo add eks https://aws.github.io/eks-charts 2>/dev/null || true
 	helm repo add external-secrets https://charts.external-secrets.io 2>/dev/null || true
 	helm repo update
+	kubectl --context mexico delete mutatingwebhookconfiguration aws-load-balancer-webhook 2>/dev/null || true
 	helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
 		--namespace kube-system --kube-context mexico \
 		--set clusterName=$(MEXICO_CLUSTER) \
