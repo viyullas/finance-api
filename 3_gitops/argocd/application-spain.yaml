@@ -1,0 +1,50 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: payment-latency-api-spain
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: payment-platform
+    region: spain
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/viyullas/finance-api.git
+    targetRevision: main
+    path: 2_application/helm-charts/payment-latency-api
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-spain.yaml
+      parameters:
+        # Actualizar con terraform output
+        - name: image.registry
+          value: "ECR_REGISTRY_SPAIN"
+        - name: ingress.annotations.alb\.ingress\.kubernetes\.io/certificate-arn
+          value: "ACM_ARN_SPAIN"
+        - name: externalSecret.rdsSecretArn
+          value: "RDS_SECRET_ARN_SPAIN"
+        - name: externalSecret.database.host
+          value: "RDS_ENDPOINT_SPAIN"
+
+  destination:
+    # In-cluster: ArgoCD corre en Spain, no necesita URL externa
+    server: "https://kubernetes.default.svc"
+    namespace: payment-api
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

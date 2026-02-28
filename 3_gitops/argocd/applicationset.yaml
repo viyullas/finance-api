@@ -1,0 +1,79 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: payment-latency-api
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          # Actualizar con terraform output de cada region
+          - region: spain
+            awsRegion: eu-south-2
+            clusterUrl: https://kubernetes.default.svc
+            valuesFile: values-spain.yaml
+            ecrRegistry: ECR_REGISTRY_SPAIN
+            acmCertificateArn: ACM_ARN_SPAIN
+            rdsSecretArn: RDS_SECRET_ARN_SPAIN
+            rdsEndpoint: RDS_ENDPOINT_SPAIN
+            compliance: GDPR
+            dataResidency: EU
+          - region: mexico
+            awsRegion: us-east-1
+            clusterUrl: CLUSTER_URL_MEXICO
+            valuesFile: values-mexico.yaml
+            ecrRegistry: ECR_REGISTRY_MEXICO
+            acmCertificateArn: ACM_ARN_MEXICO
+            rdsSecretArn: RDS_SECRET_ARN_MEXICO
+            rdsEndpoint: RDS_ENDPOINT_MEXICO
+            compliance: LeyFederalMX
+            dataResidency: MX
+
+  template:
+    metadata:
+      name: "payment-latency-api-{{region}}"
+      namespace: argocd
+      labels:
+        app.kubernetes.io/part-of: payment-platform
+        region: "{{region}}"
+        compliance: "{{compliance}}"
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+
+      source:
+        repoURL: https://github.com/viyullas/finance-api.git
+        targetRevision: main
+        path: 2_application/helm-charts/payment-latency-api
+        helm:
+          valueFiles:
+            - values.yaml
+            - "{{valuesFile}}"
+          parameters:
+            - name: image.registry
+              value: "{{ecrRegistry}}"
+            - name: ingress.annotations.alb\.ingress\.kubernetes\.io/certificate-arn
+              value: "{{acmCertificateArn}}"
+            - name: externalSecret.rdsSecretArn
+              value: "{{rdsSecretArn}}"
+            - name: externalSecret.database.host
+              value: "{{rdsEndpoint}}"
+
+      destination:
+        server: "{{clusterUrl}}"
+        namespace: payment-api
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 3
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m

@@ -1,0 +1,39 @@
+# Mexico (us-east-1) - Ley Federal MX
+config:
+  region: "us-east-1"
+  environment: "production"
+
+externalSecret:
+  remoteRefs:
+    apiSecretKey:
+      key: "production/mexico/payment-latency-api"
+      property: "API_SECRET_KEY"
+
+ingress:
+  host: api-mx.aws.lacloaca.com
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # certificate-arn se inyecta via ArgoCD ApplicationSet helm.parameters
+
+nodeSelector:
+  role: application
+
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 10
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - payment-latency-api
+          topologyKey: topology.kubernetes.io/zone

@@ -1,0 +1,39 @@
+# Spain (eu-south-2) - GDPR region
+config:
+  region: "eu-south-2"
+  environment: "production"
+
+externalSecret:
+  remoteRefs:
+    apiSecretKey:
+      key: "production/spain/payment-latency-api"
+      property: "API_SECRET_KEY"
+
+ingress:
+  host: api-es.aws.lacloaca.com
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # certificate-arn se inyecta via ArgoCD ApplicationSet helm.parameters
+
+nodeSelector:
+  role: application
+
+autoscaling:
+  minReplicas: 3
+  maxReplicas: 15
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - payment-latency-api
+          topologyKey: topology.kubernetes.io/zone

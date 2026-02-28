@@ -4,7 +4,6 @@
 
 # Documentation
 *.md
-README.md
 
 # Test files
 *_test.go
@@ -22,3 +21,10 @@ testdata/
 # Build artifacts (will be built in container)
 payment-api
 *.exe
+
+# Infrastructure and deployment (not needed in image)
+1_docs/
+2_application/
+3_gitops/
+4_infrastructure/
+Dockerfile*

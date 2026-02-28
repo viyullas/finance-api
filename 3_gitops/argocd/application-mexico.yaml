@@ -1,0 +1,50 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: payment-latency-api-mexico
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: payment-platform
+    region: mexico
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/viyullas/finance-api.git
+    targetRevision: main
+    path: 2_application/helm-charts/payment-latency-api
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-mexico.yaml
+      parameters:
+        # Actualizar con terraform output
+        - name: image.registry
+          value: "ECR_REGISTRY_MEXICO"
+        - name: ingress.annotations.alb\.ingress\.kubernetes\.io/certificate-arn
+          value: "ACM_ARN_MEXICO"
+        - name: externalSecret.rdsSecretArn
+          value: "RDS_SECRET_ARN_MEXICO"
+        - name: externalSecret.database.host
+          value: "RDS_ENDPOINT_MEXICO"
+
+  destination:
+    # Cluster remoto: ArgoCD conecta desde Spain via argocd cluster add
+    server: "CLUSTER_URL_MEXICO"
+    namespace: payment-api
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

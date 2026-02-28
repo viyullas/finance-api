@@ -1,0 +1,54 @@
+# ArgoCD Helm values — Instancia centralizada en Spain (eu-south-2)
+# Chart: argo/argo-cd (https://argoproj.github.io/argo-helm)
+#
+# Instalacion:
+#   helm repo add argo https://argoproj.github.io/argo-helm
+#   helm install argocd argo/argo-cd \
+#     -n argocd --create-namespace \
+#     -f 3_gitops/argocd/install/values-argocd.yaml
+
+global:
+  # Todos los componentes de ArgoCD corren en nodos system
+  nodeSelector:
+    role: system
+  tolerations:
+    - key: dedicated
+      value: system
+      effect: NoSchedule
+
+# Server — API + UI
+server:
+  replicas: 2
+
+  # Sin Ingress. Acceso via port-forward:
+  #   kubectl -n argocd port-forward svc/argocd-server 8443:443
+  #
+  # En produccion, se recomienda exponer con Ingress + WAF + SSO (Dex/OIDC)
+  # en lugar de mantener port-forward permanente.
+  ingress:
+    enabled: false
+
+# Controller — reconciliacion de Applications
+controller:
+  replicas: 1
+
+# Repo Server — clona repos y renderiza Helm charts
+repoServer:
+  replicas: 2
+
+# ApplicationSet controller — genera Applications desde el ApplicationSet
+applicationSet:
+  replicas: 1
+
+# Redis — cache interno (HA con Redis HA si se necesita)
+redis:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# ArgoCD server sirve HTTPS por defecto (TLS propio).
+# Con port-forward esto funciona directamente.

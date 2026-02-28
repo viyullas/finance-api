@@ -1,0 +1,44 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Go
+payment-api
+*.exe
+vendor/
+
+# Helm
+*.tgz
+
+# Secrets — NUNCA en Git
+.env
+*.pem
+*.key
+credentials.json
+
+# Python venv
+.venv/
+
+# Claude Code
+.claude/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary
+*.tmp
+*.log

@@ -1,0 +1,107 @@
+replicaCount: 2
+
+image:
+  registry: ""  # Injected via ArgoCD helm.parameters from terraform output ecr_registry
+  repository: payment-latency-api
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: "payment-latency-api"
+
+# Non-sensitive config (injected via ConfigMap)
+config:
+  region: "unknown"
+  environment: "dev"
+
+# Secret reference (managed by External Secrets Operator)
+# DATABASE_URL is composed from the RDS-managed secret (auto-rotated) + endpoint
+# API_SECRET_KEY comes from a manual Secrets Manager secret
+externalSecret:
+  enabled: true
+  secretStoreName: aws-secrets-manager
+  secretStoreKind: ClusterSecretStore
+  refreshInterval: "1h"
+  rdsSecretArn: ""    # Injected via ArgoCD helm.parameters from terraform output rds_master_secret_arn
+  database:
+    host: ""          # Injected via ArgoCD helm.parameters from terraform output rds_endpoint
+    port: "5432"
+    name: "payments"
+    sslmode: "require"
+  remoteRefs:
+    apiSecretKey:
+      key: ""         # Set per environment
+      property: "API_SECRET_KEY"
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+  host: ""
+  tls:
+    enabled: true
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 128Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+probes:
+  liveness:
+    path: /health
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    failureThreshold: 3
+  readiness:
+    path: /health
+    initialDelaySeconds: 3
+    periodSeconds: 5
+    failureThreshold: 3
+
+serviceMonitor:
+  enabled: true
+  interval: 15s
+  path: /metrics
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  fsGroup: 65534
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+pdb:
+  minAvailable: 1
+
+nodeSelector:
+  role: application
+tolerations: []
+affinity: {}

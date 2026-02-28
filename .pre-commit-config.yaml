@@ -1,0 +1,33 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ['--allow-multiple-documents']
+        exclude: '^2_application/helm-charts/.*/templates/'
+      - id: check-json
+      - id: check-merge-conflict
+
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.96.3
+    hooks:
+      - id: terraform_fmt
+        args:
+          - --hook-config=--tf-path=/home/aabella/.tfenv/bin/terraform
+      - id: terraform_validate
+        args:
+          - --hook-config=--retry-once-with-cleanup=true
+
+  - repo: https://github.com/gruntwork-io/pre-commit
+    rev: v0.1.25
+    hooks:
+      - id: helmlint
+        args:
+          - '--values=2_application/helm-charts/payment-latency-api/values.yaml'
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.22.1
+    hooks:
+      - id: gitleaks

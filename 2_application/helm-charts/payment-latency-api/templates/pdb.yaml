@@ -1,0 +1,13 @@
+{{- if .Values.autoscaling.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "payment-latency-api.fullname" . }}
+  labels:
+    {{- include "payment-latency-api.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "payment-latency-api.selectorLabels" . | nindent 6 }}
+{{- end }}
