@@ -1,42 +1,42 @@
 # Technical Assessment: Senior Platform Engineer - Pluxee/Cobee
 
-## Contexto del Proyecto
-Diseño e implementación de una infraestructura cloud multi-regional en AWS para una plataforma fintech de pagos con operaciones activas en España y México.
+## Project Context
+Design and implementation of a multi-regional cloud infrastructure on AWS for a fintech payments platform with active operations in Spain and Mexico.
 
-**Objetivo principal:** Arquitectura cloud-native que segmente datos sensibles por región cumpliendo GDPR (EU) y normativa local (México), con latencia < 100ms en transacciones financieras.
+**Main objective:** Cloud-native architecture that segments sensitive data by region, complying with GDPR (EU) and local regulations (Mexico), with latency < 100ms on financial transactions.
 
-## Aplicación Base
-- Repositorio: https://github.com/cobee-io/platform-sample-go-application
-- Es una API Go llamada `payment-latency-api`
-- Puerto: 8080
+## Base Application
+- Repository: https://github.com/cobee-io/platform-sample-go-application
+- A Go API called `payment-latency-api`
+- Port: 8080
 - Endpoints: `/health`, `/metrics`, `/info`, `/api/payment/simulate`
 
-### Variables de entorno requeridas
-**Secretos (NUNCA en Git):**
+### Required environment variables
+**Secrets (NEVER in Git):**
 - `DATABASE_URL` → PostgreSQL connection string
-- `API_SECRET_KEY` → clave de autenticación interna (64 chars)
+- `API_SECRET_KEY` → internal authentication key (64 chars)
 
-**No sensibles (ConfigMap):**
-- `REGION` → identificador de región AWS
-- `ENVIRONMENT` → entorno de despliegue
+**Non-sensitive (ConfigMap):**
+- `REGION` → AWS region identifier
+- `ENVIRONMENT` → deployment environment
 
 ---
 
-## Estructura de Entregables
+## Deliverables Structure
 
 ```
 .
-├── Dockerfile                          # Optimizado (<20MB, multi-stage, non-root)
-├── CLAUDE.md                           # Este archivo
+├── Dockerfile                          # Optimised (<20MB, multi-stage, non-root)
+├── CLAUDE.md                           # This file
 ├── 1_docs/
-│   ├── ADR-01-DECISIONS.md             # Decisiones globales de arquitectura
-│   ├── ADR-02-LATENCY-STRATEGY.md      # Estrategia para <100ms
-│   ├── ADR-03-SECRET-MANAGEMENT.md     # Gestión de secretos
-│   ├── SECURITY-CHECKLIST.md           # Checklist de seguridad completado
-│   └── README.md                       # Resumen de implementación
+│   ├── ADR-01-DECISIONS.md             # Global architecture decisions
+│   ├── ADR-02-LATENCY-STRATEGY.md      # Strategy for <100ms
+│   ├── ADR-03-SECRET-MANAGEMENT.md     # Secret management
+│   ├── SECURITY-CHECKLIST.md           # Completed security checklist
+│   └── README.md                       # Implementation summary
 ├── 2_application/
 │   └── helm-charts/
-│       └── payment-latency-api/        # Helm Chart completo
+│       └── payment-latency-api/        # Complete Helm Chart
 │           ├── Chart.yaml
 │           ├── values.yaml
 │           ├── values-spain.yaml
@@ -53,98 +53,101 @@ Diseño e implementación de una infraestructura cloud multi-regional en AWS par
 │   └── argocd/
 │       ├── application-spain.yaml
 │       ├── application-mexico.yaml
-│       └── applicationset.yaml         # Bonus: multi-region en un solo manifiesto
+│       └── applicationset.yaml         # Bonus: multi-region in a single manifest
 └── 4_infrastructure/
     └── terraform/
         ├── modules/
-        │   ├── vpc/                    # VPC multi-AZ
+        │   ├── vpc/                    # Multi-AZ VPC
         │   ├── eks/                    # Cluster + node groups
         │   └── rds/                    # PostgreSQL
         └── environments/
             ├── spain/                  # eu-south-2
-            └── mexico/                 # us-east-1 (región proxy para MX)
+            └── mexico/                 # us-east-1 (proxy region for MX)
 ```
 
 ---
 
-## Requisitos Técnicos por Área
+## Technical Requirements by Area
 
 ### 1. Dockerfile
 - Multi-stage build
-- Imagen final < 20MB (usar `scratch` o `distroless`)
-- Usuario non-root (UID 65532 o similar)
-- Sin secretos hardcodeados
+- Final image < 20MB (use `scratch` or `distroless`)
+- Non-root user (UID 65532 or similar)
+- No hardcoded secrets
 
 ### 2. Helm Chart
-Debe incluir todos estos recursos:
-- `Deployment` con probes (liveness, readiness), resources limits/requests
+Must include all of the following resources:
+- `Deployment` with probes (liveness, readiness), resource limits/requests
 - `Service` (ClusterIP)
-- `Ingress` con TLS
-- `ConfigMap` para variables no sensibles
+- `Ingress` with TLS
+- `ConfigMap` for non-sensitive variables
 - `HPA` (Horizontal Pod Autoscaler)
-- `ServiceMonitor` para Prometheus
-- Integración con External Secrets Operator (NO secretos en Git)
+- `ServiceMonitor` for Prometheus
+- External Secrets Operator integration (NO secrets in Git)
 
-### 3. Infraestructura Terraform
-- **VPC:** multi-AZ, subnets públicas/privadas, NAT Gateway
-- **EKS:** cluster managed, node groups con auto-scaling
-- **RDS:** PostgreSQL, Multi-AZ, encrypted, en subnet privada
-- Usar módulos públicos documentando la fuente
-- Ejecutar `terraform validate` antes de entregar
+### 3. Terraform Infrastructure
+- **VPC:** multi-AZ, public/private subnets, NAT Gateway
+- **EKS:** managed cluster, node groups with auto-scaling
+- **RDS:** PostgreSQL, Multi-AZ, encrypted, in private subnet
+- Use public modules documenting the source
+- Run `terraform validate` before delivery
 
 ### 4. GitOps - ArgoCD
-- `Application` manifest para España (`eu-south-2`)
-- `Application` manifest para México (`us-east-1`)
-- Bonus: `ApplicationSet` que gestione ambas regiones
+- `Application` manifest for Spain (`eu-south-2`)
+- `Application` manifest for Mexico (`us-east-1`)
+- Bonus: `ApplicationSet` managing both regions
 
-### 5. Seguridad y Compliance
-- **Residencia de datos:** datos EU solo en España, datos MX solo en México
-- **Cifrado:** en reposo (KMS) y en tránsito (TLS 1.2+)
-- **IAM:** least privilege, roles por servicio (IRSA en EKS)
-- **Auditoría:** CloudTrail habilitado en ambas regiones
-
----
-
-## Restricciones Absolutas
-- ❌ NUNCA secrets en Git (ni hardcodeados, ni en values.yaml)
-- ❌ NUNCA ejecutar el contenedor como root
-- ❌ NUNCA sin documentación
-- ❌ NUNCA sin cifrado
-
-## Shortcuts Permitidos
-- ✅ Usar módulos Terraform públicos (documentar fuente)
-- ✅ Implementar una región completamente y documentar la segunda
-- ✅ Usar herramientas de IA
+### 5. Security & Compliance
+- **Data residency:** EU data only in Spain, MX data only in Mexico
+- **Encryption:** at rest (KMS) and in transit (TLS 1.2+)
+- **IAM:** least privilege, per-service roles (IRSA on EKS)
+- **Auditing:** CloudTrail enabled in both regions
 
 ---
 
-## Regiones AWS
-| Región  | AWS Region  | Normativa       |
+## Absolute Constraints
+- ❌ NEVER secrets in Git (neither hardcoded nor in values.yaml)
+- ❌ NEVER run the container as root
+- ❌ NEVER without documentation
+- ❌ NEVER without encryption
+
+## Allowed Shortcuts
+- ✅ Use public Terraform modules (document source)
+- ✅ Implement one region fully and document the second
+- ✅ Use AI tools
+
+---
+
+## AWS Regions
+| Region  | AWS Region  | Regulation      |
 |---------|-------------|-----------------|
-| España  | eu-south-2  | GDPR (EU)       |
-| México  | us-east-1*  | Ley Federal MX  |
+| Spain   | eu-south-2  | GDPR (EU)       |
+| Mexico  | us-east-1*  | Ley Federal MX  |
 
-*AWS no tiene región en México, usar us-east-1 con etiquetado de datos.
-
----
-
-## Gestión de Secretos - Solución Recomendada
-Usar **External Secrets Operator (ESO)** + **AWS Secrets Manager**:
-1. Secretos almacenados en AWS Secrets Manager por región
-2. ESO sincroniza los secretos como Kubernetes Secrets nativos
-3. Las apps consumen Kubernetes Secrets normalmente
-4. Zero secretos en Git
-
-## Estrategia de Latencia < 100ms
-- EKS en la misma región que RDS (misma AZ preferiblemente)
-- Connection pooling en la app (PgBouncer o similar)
-- RDS Proxy para gestión de conexiones
-- HPA para escalar pods bajo carga
-- Ingress con AWS ALB (menor latencia que NLB para HTTP)
+*AWS has no region in Mexico; use us-east-1 with data tagging.
 
 ---
 
-## Contacto y Entrega
+## Secret Management - Recommended Solution
+Use **External Secrets Operator (ESO)** + **AWS Secrets Manager**:
+1. Secrets stored in AWS Secrets Manager per region
+2. ESO synchronises secrets as native Kubernetes Secrets
+3. Apps consume Kubernetes Secrets normally
+4. Zero secrets in Git
+
+## Latency < 100ms Strategy
+- EKS in the same region as RDS (same AZ preferred)
+- Connection pooling in the app (PgBouncer or similar)
+- RDS Proxy for connection management
+- HPA to scale pods under load
+- Ingress with AWS ALB (lower latency than NLB for HTTP)
+
+---
+
+## Contact & Delivery
 - Email: platform.cb@pluxeegroup.com
-- Plazo: 7 días naturales desde recepción
-- Formato: cualquier forma conveniente (zip, repo privado, etc.)
+- Deadline: 7 calendar days from receipt
+- Format: any convenient format (zip, private repo, etc.)
+
+# currentDate
+Today's date is 2026-02-24.
